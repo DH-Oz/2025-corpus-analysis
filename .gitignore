@@ -1,0 +1,29 @@
+# Hard rule: NEVER commit LIWC dictionaries in any language (commercial, non-redistributable)
+liwcdict.dic
+LIWC*.dic
+LIWC*.dict
+liwc*.dic
+liwc*.dict
+
+# R / RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Python
+__pycache__/
+*.py[oc]
+.venv/
+
+# Jupyter (just in case)
+.ipynb_checkpoints/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
