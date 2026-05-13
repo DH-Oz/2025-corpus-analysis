@@ -1,0 +1,538 @@
+---
+title: "Corpus Masterclass 3a"
+author: "Mark Alfano"
+date: "27 April 2025"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set working directory
+```{r}
+setwd("~/Documents/Philosophy/Experimental/R")
+```
+
+# load required packages
+```{r message=FALSE}
+require(readtext)
+require(quanteda)
+require(quanteda.textplots)
+require(quanteda.textstats)
+require(quanteda.textmodels)
+require(quanteda.dictionaries)
+require(quanteda.corpora)
+require(tidyr)
+require(ggplot2)
+require(network)
+require(igraph)
+```
+
+# Full corpus exploration
+
+## Have a look at the SOTU corpora
+```{r}
+head(data_corpus_sotu)
+```
+
+## Have a look at a couple of Washington's speeches
+```{r}
+as.character(data_corpus_sotu)[1]
+as.character(data_corpus_sotu)[2]
+```
+
+## Summarize the corpus
+```{r}
+summary(data_corpus_sotu)
+```
+
+This is a slightly annoying format because the Date column includes not just the year but also the month and day. Let's split that column into three so that we can plot some yearly comparisons. We also have to coerce the new Year column to be numeric because otherwise R thinks it's a string variable.
+
+### Find top bigrams
+```{r}
+toks <- tokens(data_corpus_sotu, remove_punct = TRUE)
+tstat_col_caps <- tokens_select(toks, pattern = "^[A-Z]", 
+                                valuetype = "regex", 
+                                case_insensitive = FALSE, 
+                                padding = TRUE) %>% 
+    textstat_collocations(min_count = 100)
+head(tstat_col_caps, 20)
+```
+
+### condense top bigrams
+```{r}
+toks2 <- tokens_replace(toks, 
+                        phrase(c("united states")), phrase(c("unitedstates")))
+toks2 <- tokens_replace(toks2, 
+                        phrase(c("federal government")), phrase(c("federalgovernment")))
+toks2 <- tokens_replace(toks2, 
+                        phrase(c("soviet union")), phrase(c("sovietunion")))
+toks2 <- tokens_replace(toks2, 
+                        phrase(c("world war")), phrase(c("worldwar")))
+toks2 <- tokens_replace(toks2, 
+                        phrase(c("united nations")), phrase(c("unitednations")))
+toks2 <- tokens_replace(toks2, 
+                        phrase(c("central america")), phrase(c("centralamerica")))
+toks2 <- tokens_replace(toks2, 
+                        phrase(c("great britain")), phrase(c("greatbritain")))
+toks2 <- tokens_replace(toks2, 
+                        phrase(c("supreme court")), phrase(c("supremecourt")))
+```
+
+### select words inside and outside desired window (10) from atom/nuclear
+```{r}
+nuke <- c("atom*", "nuclear", "nuke*") # this also gets "atomic family," which is a right-wing dogwhistle...
+toks_inside <- tokens_keep(toks2, 
+                           pattern = nuke, 
+                           window = 10) # why 10?
+toks_inside <- tokens_remove(toks_inside, pattern = nuke) # remove the keywords
+toks_outside <- tokens_remove(toks2, pattern = nuke, window = 10)
+```
+
+### compare inside and outside
+```{r}
+dfmat_inside <- dfm(toks_inside)
+dfmat_outside <- dfm(toks_outside)
+
+tstat_key_inside <- textstat_keyness(rbind(dfmat_inside, dfmat_outside), 
+                                     target = seq_len(ndoc(dfmat_inside)))
+head(tstat_key_inside, 50)
+```
+
+
+### Clean up corpus
+
+```{r}
+tokenInfo <- summary(data_corpus_sotu)
+tokenInfo <- separate(tokenInfo, Date, c('Year', 'Month', 'Day'))
+tokenInfo$Year <- as.numeric(tokenInfo$Year)
+```
+
+## Convert the corpus into a document feature matrix (dfmat), removing punctuation and English stopwords; trim dfmat by excluding rare words
+```{r}
+toks_sotu <- tokens(data_corpus_sotu, remove_punct = TRUE)
+dfmat_sotu <- dfm(toks_sotu)
+dfmat_sotu <- dfm_remove(dfmat_sotu, pattern = stopwords("en"))
+dfmat_sotu <- dfm_trim(dfmat_sotu, min_termfreq = 5, min_docfreq = 3)
+head(dfmat_sotu)
+```
+
+# Further comparative exploration by speech
+
+## compare lexical dispersion from 1908 of words beginning with 'atom'
+```{r}
+corp <- corpus_subset(data_corpus_sotu, Date > "1908-01-01")
+# compare multiple documents
+corp_kwic <- kwic(tokens(corp), pattern = "atom*")
+textplot_xray(corp_kwic, scale = "absolute") # what other scales are available?
+```
+
+
+## compare lexical dispersion from 1908 of words beginning with 'nuclear'
+```{r}
+corp <- corpus_subset(data_corpus_sotu, Date > "1908-01-01")
+# compare multiple documents
+corp_kwic <- kwic(tokens(corp), pattern = "nuclear*")
+textplot_xray(corp_kwic, scale = "absolute")
+```
+
+# LIWCalike analysis
+
+## We can examine various predefined constructs represented in each SOTU
+```{r}
+nukedic <- dictionary(file = "nuke.dic")
+LIWCanalysis <- liwcalike(data_corpus_sotu, nukedic)
+head(LIWCanalysis)
+```
+
+### clean up LIWCalike output
+```{r}
+LIWCanalysis <- separate(LIWCanalysis, docname, c('president', 'year'))
+LIWCanalysis$president <- replace(LIWCanalysis$president, LIWCanalysis$president == "van", "vanBuren")
+LIWCanalysis$year <- replace(LIWCanalysis$year, LIWCanalysis$year == "Buren", 1838)
+```
+
+### Further cleaning
+```{r}
+LIWCanalysis$year <- as.numeric(LIWCanalysis$year)
+LIWCanalysis$nuke <- as.numeric(LIWCanalysis$nuke) 
+```
+
+## Now we can get the nuclear words from all SOTUs
+```{r}
+ggplot(data=LIWCanalysis, 
+       aes(x = year, y = nuke)) + 
+  geom_line() + 
+  geom_point() + 
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Transform the LIWCalike output into an adjacency matrix. Then transform adjacency matrix into a network object.  
+```{r}
+LIWCanalysis_simple <- LIWCanalysis[,8:37]
+
+M <- data.matrix(LIWCanalysis_simple)
+T <- t(M)
+LIWCanalysis_adj <- (T %*% M)
+
+network <- graph_from_adjacency_matrix(LIWCanalysis_adj, 
+                                       mode = "undirected", 
+                                       weighted = TRUE, 
+                                       diag = FALSE)
+
+str <- strength(network)
+V(network)$size <- str*6
+E(network)$width <- E(network)$weight*6
+
+head(network)
+```
+
+## Then plot the LIWCalike network using with circle layout
+
+```{r}
+l <- layout_in_circle(network)
+l <- norm_coords(l, 
+                 ymin=-.9, 
+                 ymax=.9, 
+                 xmin=-1.5, 
+                 xmax=1.5) #what's up with the scaling? Words are wider than they are tall...
+
+plot.igraph(network, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+## Then redo decade by decade
+```{r}
+LIWCanalysis1940 <- LIWCanalysis[LIWCanalysis$year %in% 1940:1949,]
+LIWCanalysis1950 <- LIWCanalysis[LIWCanalysis$year %in% 1950:1959,]
+LIWCanalysis1960 <- LIWCanalysis[LIWCanalysis$year %in% 1960:1969,]
+LIWCanalysis1970 <- LIWCanalysis[LIWCanalysis$year %in% 1970:1979,]
+LIWCanalysis1980 <- LIWCanalysis[LIWCanalysis$year %in% 1980:1989,]
+LIWCanalysis1990 <- LIWCanalysis[LIWCanalysis$year %in% 1990:1999,]
+LIWCanalysis2000 <- LIWCanalysis[LIWCanalysis$year %in% 2000:2009,]
+LIWCanalysis2010 <- LIWCanalysis[LIWCanalysis$year %in% 2010:2019,]
+LIWCanalysis2020 <- LIWCanalysis[LIWCanalysis$year %in% 2020:2015,] #is there a cleaner way to do this with a for loop? BRIAN HALP!
+```
+
+## Transform the decade-wise LIWCalike outputs into adjacency matrices. Then transform adjacency matrices into network objects.  
+```{r}
+LIWCanalysis1940_simple <- LIWCanalysis1940[,8:37]
+LIWCanalysis1950_simple <- LIWCanalysis1950[,8:37]
+LIWCanalysis1960_simple <- LIWCanalysis1960[,8:37]
+LIWCanalysis1970_simple <- LIWCanalysis1970[,8:37]
+LIWCanalysis1980_simple <- LIWCanalysis1980[,8:37]
+LIWCanalysis1990_simple <- LIWCanalysis1990[,8:37]
+LIWCanalysis2000_simple <- LIWCanalysis2000[,8:37]
+LIWCanalysis2010_simple <- LIWCanalysis2010[,8:37]
+LIWCanalysis2020_simple <- LIWCanalysis2020[,8:37]
+```
+
+### 1940s network
+```{r}
+M1940 <- data.matrix(LIWCanalysis1940_simple)
+T1940 <- t(M1940)
+LIWCanalysis1940_adj <- (T1940 %*% M1940)
+
+network1940 <- graph_from_adjacency_matrix(LIWCanalysis1940_adj, 
+                                           mode = "undirected", 
+                                           weighted = TRUE, 
+                                           diag = FALSE)
+
+
+str <- strength(network1940)
+V(network1940)$size <- str*300
+E(network1940)$width <- E(network1940)$weight*50
+
+
+l1940 <- layout_in_circle(network1940)
+l1940 <- norm_coords(l, 
+                     ymin=-.9, 
+                     ymax=.9, 
+                     xmin=-1.5, 
+                     xmax=1.5)
+plot.igraph(network1940, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+### 1950s network
+```{r}
+M1950 <- data.matrix(LIWCanalysis1950_simple)
+T1950 <- t(M1950)
+LIWCanalysis1950_adj <- (T1950 %*% M1950)
+
+network1950 <- graph_from_adjacency_matrix(LIWCanalysis1950_adj, 
+                                           mode = "undirected", 
+                                           weighted = TRUE, 
+                                           diag = FALSE)
+
+
+str <- strength(network1950)
+V(network1950)$size <- str*50
+E(network1950)$width <- E(network1950)$weight*50
+
+
+l1950 <- layout_in_circle(network1950)
+l1950 <- norm_coords(l, 
+                     ymin=-.9, 
+                     ymax=.9, 
+                     xmin=-1.5, 
+                     xmax=1.5)
+plot.igraph(network1950, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+### 1960s network
+```{r}
+M1960 <- data.matrix(LIWCanalysis1960_simple)
+T1960 <- t(M1960)
+LIWCanalysis1960_adj <- (T1960 %*% M1960)
+
+network1960 <- graph_from_adjacency_matrix(LIWCanalysis1960_adj, 
+                                           mode = "undirected", 
+                                           weighted = TRUE, 
+                                           diag = FALSE)
+
+
+str <- strength(network1960)
+V(network1960)$size <- str*100
+E(network1960)$width <- E(network1960)$weight*100
+
+
+l1960 <- layout_in_circle(network1960)
+l1960 <- norm_coords(l, 
+                     ymin=-.9, 
+                     ymax=.9, 
+                     xmin=-1.5, 
+                     xmax=1.5)
+plot.igraph(network1960, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+### 1970s network
+```{r}
+M1970 <- data.matrix(LIWCanalysis1970_simple)
+T1970 <- t(M1970)
+LIWCanalysis1970_adj <- (T1970 %*% M1970)
+
+network1970 <- graph_from_adjacency_matrix(LIWCanalysis1970_adj, 
+                                           mode = "undirected", 
+                                           weighted = TRUE, 
+                                           diag = FALSE)
+
+
+str <- strength(network1970)
+V(network1970)$size <- str*30
+E(network1970)$width <- E(network1970)$weight*15
+
+
+l1970 <- layout_in_circle(network1970)
+l1970 <- norm_coords(l, 
+                     ymin=-.9, 
+                     ymax=.9, 
+                     xmin=-1.5, 
+                     xmax=1.5)
+plot.igraph(network1970, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+### 1980s network
+```{r}
+M1980 <- data.matrix(LIWCanalysis1980_simple)
+T1980 <- t(M1980)
+LIWCanalysis1980_adj <- (T1980 %*% M1980)
+
+network1980 <- graph_from_adjacency_matrix(LIWCanalysis1980_adj, 
+                                           mode = "undirected", 
+                                           weighted = TRUE, 
+                                           diag = FALSE)
+
+
+str <- strength(network1980)
+V(network1980)$size <- str*50
+E(network1980)$width <- E(network1980)$weight*50
+
+
+l1980 <- layout_in_circle(network1980)
+l1980 <- norm_coords(l, 
+                     ymin=-.9, 
+                     ymax=.9, 
+                     xmin=-1.5, 
+                     xmax=1.5)
+plot.igraph(network1980, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+### 1990s network
+```{r}
+M1990 <- data.matrix(LIWCanalysis1990_simple)
+T1990 <- t(M1990)
+LIWCanalysis1990_adj <- (T1990 %*% M1990)
+
+network1990 <- graph_from_adjacency_matrix(LIWCanalysis1990_adj, 
+                                           mode = "undirected", 
+                                           weighted = TRUE, 
+                                           diag = FALSE)
+
+
+str <- strength(network1990)
+V(network1990)$size <- str*150
+E(network1990)$width <- E(network1990)$weight*100
+
+
+l1990 <- layout_in_circle(network1990)
+l1990 <- norm_coords(l, 
+                     ymin=-.9, 
+                     ymax=.9, 
+                     xmin=-1.5, 
+                     xmax=1.5)
+plot.igraph(network1990, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+### 2000s network
+```{r}
+M2000 <- data.matrix(LIWCanalysis2000_simple)
+T2000 <- t(M2000)
+LIWCanalysis2000_adj <- (T2000 %*% M2000)
+
+network2000 <- graph_from_adjacency_matrix(LIWCanalysis2000_adj, 
+                                           mode = "undirected", 
+                                           weighted = TRUE, 
+                                           diag = FALSE)
+
+
+str <- strength(network2000)
+V(network2000)$size <- str*20
+E(network2000)$width <- E(network2000)$weight*20
+
+
+l2000 <- layout_in_circle(network2000)
+l2000 <- norm_coords(l, 
+                     ymin=-.9, 
+                     ymax=.9, 
+                     xmin=-1.5, 
+                     xmax=1.5)
+plot.igraph(network2000, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+### 2010s network
+```{r}
+M2010 <- data.matrix(LIWCanalysis2010_simple)
+T2010 <- t(M2010)
+LIWCanalysis2010_adj <- (T2010 %*% M2010)
+
+network2010 <- graph_from_adjacency_matrix(LIWCanalysis2010_adj, 
+                                           mode = "undirected", 
+                                           weighted = TRUE, 
+                                           diag = FALSE)
+
+
+str <- strength(network2010)
+V(network2010)$size <- str*50
+E(network2010)$width <- E(network2010)$weight*50
+
+
+l2010 <- layout_in_circle(network2010)
+l2010 <- norm_coords(l, 
+                     ymin=-.9, 
+                     ymax=.9, 
+                     xmin=-1.5, 
+                     xmax=1.5)
+plot.igraph(network2010, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+### 2020s network
+```{r}
+M2020 <- data.matrix(LIWCanalysis2020_simple)
+T2020 <- t(M2020)
+LIWCanalysis2020_adj <- (T2020 %*% M2020)
+
+network2020 <- graph_from_adjacency_matrix(LIWCanalysis2020_adj, 
+                                           mode = "undirected", 
+                                           weighted = TRUE, 
+                                           diag = FALSE)
+
+
+str <- strength(network2020)
+V(network2020)$size <- str*200
+E(network2020)$width <- E(network2020)$weight*100
+
+
+l2020 <- layout_in_circle(network2020)
+l2020 <- norm_coords(l, 
+                     ymin=-.9, 
+                     ymax=.9, 
+                     xmin=-1.5, 
+                     xmax=1.5)
+plot.igraph(network2020, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```

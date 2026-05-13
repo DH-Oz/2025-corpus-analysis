@@ -1,0 +1,318 @@
+---
+title: "Corpus Masterclass 1"
+author: "Mark Alfano"
+date: "27 April 2025"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set working directory
+```{r}
+# setwd("~/Documents/Philosophy/Experimental/R")
+```
+
+# load required packages
+```{r message=FALSE}
+require(readtext)
+require(quanteda)
+require(quanteda.textplots)
+require(quanteda.corpora)
+require(quanteda.textstats)
+require(topicmodels)
+require(dplyr)
+require(tidyr)
+require(tidytext)
+require(ggplot2)
+require(network)
+require(igraph)
+require(gridExtra)
+library(lexicon)
+library(reshape2)
+library(stringi)
+```
+
+# Full corpus exploration
+
+## Have a look at the SOTU corpora
+```{r}
+head(data_corpus_sotu)
+tail(data_corpus_sotu)
+```
+
+## Have a look at a couple of Washington's speeches
+```{r}
+as.character(data_corpus_sotu)[1]
+as.character(data_corpus_sotu)[2]
+```
+
+## Summarize the corpus
+```{r}
+summary(data_corpus_sotu)
+```
+
+This is a slightly annoying format because the Date column includes not just the year but also the month and day. Let's split that column into three so that we can plot some yearly comparisons. We also have to coerce the new Year column to be numeric because otherwise R thinks it's a string variable.
+
+### Clean up corpus
+
+```{r}
+tokenInfo <- summary(data_corpus_sotu)
+
+tokenInfo <- separate(tokenInfo, 
+                      Date, 
+                      c('Year', 'Month', 'Day')
+                      )
+
+tokenInfo$Year <- as.numeric(tokenInfo$Year) #because separate makes Year a string rather than a number
+```
+
+## visualize word count, comparing different parties
+```{r}
+ggplot(data=tokenInfo, 
+       aes(x = Year, 
+           y = Tokens, 
+           group = 1, 
+           color = party)
+       ) + 
+      geom_line() + #should it be a line though?
+      geom_point() + # maybe a histogram would be more informative?
+      scale_x_continuous(labels = c(seq(1789, 2017, 12)), breaks = seq(1789, 2017, 12)) + #note that we don't go all the way to 2017. Why?
+      theme_bw()
+```
+
+
+## Convert the corpus into a document feature matrix (dfmat), removing punctuation and English stopwords; trim dfmat by excluding rare words
+```{r}
+toks_sotu <- tokens(data_corpus_sotu, 
+                    remove_punct = TRUE) # what happens when we keep the punctuation? 
+
+dfmat_sotu <- dfm(toks_sotu) # wtf is a dfmat (document feature matrix?)
+
+dfmat_sotu <- dfm_remove(dfmat_sotu, 
+                         pattern = stopwords("en")) # why remove stopwords? What counts as a stopword? Who gets to say what counts as a stopword?
+
+dfmat_sotu <- dfm_trim(dfmat_sotu, 
+                       min_termfreq = 5, # why 5? 
+                       min_docfreq = 3) #why 3?
+
+head(dfmat_sotu)
+```
+
+
+## Generate top features
+```{r}
+topfeatures(dfmat_sotu, 
+            20) # why 20?
+```
+ 
+ 
+## Generate a word cloud
+```{r warning = FALSE}
+set.seed(1000)
+textplot_wordcloud(dfmat_sotu, 
+                   min_count = 600, # why 600?
+                   random_order = FALSE, # why false?
+                   rotation = .25, # other rotations?
+                   color = RColorBrewer::brewer.pal(8, "Dark2") # what is color brewer? (https://colorbrewer2.org/#type=sequential&scheme=BuGn&n=3)
+                   )
+```
+ 
+## Use Latent Dirichlet Allocation to build topic models:
+```{r}
+set.seed(100)
+if (require(topicmodels)) {
+    my_lda_fit <- LDA(convert(dfmat_sotu, 
+                              to = "topicmodels"),
+                      k = 8) # is 8 appropriate?
+    
+    get_terms(my_lda_fit, 
+              10) # why 10?
+}
+```
+
+# Further comparative exploration by speech
+
+## Top features by speech
+```{r}
+topfeatures(dfmat_sotu, 
+            10, #why 10? 
+            decreasing = TRUE, #why decreasing? 
+            groups = docnames(dfmat_sotu)
+            )
+```
+
+## Hierarchical clustering of speeches
+```{r}
+tstat_dist <- textstat_dist(dfm_weight(dfmat_sotu, 
+                                       scheme = "prop") # could instead use count, propmax, logcount, etc.
+                            )
+
+sotu_cluster <- hclust(as.dist(tstat_dist))
+
+sotu_cluster$labels <- docnames(dfmat_sotu)
+
+plot(sotu_cluster, 
+     xlab = "", 
+     sub = "",
+     main = "Euclidean Distance on Normalized Token Frequency")
+```
+
+That's a bit busy. Let's replot but only from 1980 to the present. This example uses tidyverse rather than base R, but accomplishes the same thing.
+
+### Hierarchical clustering of speeches from 1980 to the present
+```{r}
+pres_dfm <- tokens(corpus_subset(data_corpus_sotu, 
+                                 Date > "1980-01-01"), # how did we arrive at this date?
+                                  remove_punct = TRUE) %>%
+  tokens_wordstem("en") %>%
+  tokens_remove(stopwords("en")) %>%
+  dfm() %>%
+  dfm_trim(min_termfreq = 5, # why 5?
+           min_docfreq = 3) # why 3?
+
+# hierarchical clustering - get distances on normalized dfm
+pres_dist_mat <- dfm_weight(pres_dfm, 
+                            scheme = "prop") %>%
+    textstat_dist(method = "euclidean") %>% 
+    as.dist()
+
+# hiarchical clustering the distance object
+pres_cluster <- hclust(pres_dist_mat)
+
+# label with document names
+pres_cluster$labels <- docnames(pres_dfm)
+
+# plot as a dendrogram
+plot(pres_cluster, xlab = "", sub = "", 
+     main = "Euclidean Distance on Normalized Token Frequency")
+```
+
+A lot of people prefer cosine distance to Euclidean. We can accommodate that by using textstat_simil and specifying cosine as the method.
+
+### Hierarchical clustering using cosine distance
+```{r}
+pres_dfm <- tokens(corpus_subset(data_corpus_sotu, 
+                                 Date > "1980-01-01"), 
+                                  remove_punct = TRUE) %>%
+  tokens_wordstem("en") %>%
+  tokens_remove(stopwords("en")) %>%
+  dfm() %>%
+  dfm_trim(min_termfreq = 5, 
+           min_docfreq = 3)
+
+# hierarchical clustering - get distances on normalized dfm
+pres_dist_mat <- dfm_weight(pres_dfm, 
+                            scheme = "prop") %>%
+    textstat_simil(method = "cosine") %>% # what other methods can we use? Why?
+    as.dist()
+
+# hierchical clustering the distance object
+pres_cluster <- hclust(pres_dist_mat)
+
+# label with document names
+pres_cluster$labels <- docnames(pres_dfm)
+
+# plot as a dendrogram
+plot(pres_cluster, xlab = "", sub = "", 
+     main = "Cosine Distance on Normalized Token Frequency")
+```
+
+We can also plot the early SOTU speeches by fiddling with the Date parameter.
+
+### Hierarchical of early SOTU speeches using euclidean
+```{r}
+pres_dfm <- tokens(corpus_subset(data_corpus_sotu, 
+                                 Date < "1830-01-01"), 
+                                  remove_punct = TRUE) %>%
+  tokens_wordstem("en") %>%
+  tokens_remove(stopwords("en")) %>%
+  dfm() %>%
+  dfm_trim(min_termfreq = 5, min_docfreq = 3)
+
+# hierarchical clustering - get distances on normalized dfm
+pres_dist_mat <- dfm_weight(pres_dfm, 
+                            scheme = "prop") %>%
+    textstat_dist(method = "euclidean") %>% 
+    as.dist()
+
+# hiarchical clustering the distance object
+pres_cluster <- hclust(pres_dist_mat)
+
+# label with document names
+pres_cluster$labels <- docnames(pres_dfm)
+
+# plot as a dendrogram
+plot(pres_cluster, xlab = "", sub = "", 
+     main = "Euclidean Distance on Normalized Token Frequency")
+```
+
+And again, we can switch to cosine similarity by using textstat_simil and specifying cosine as the method.
+
+### Hierarchical clustering of early SOTUs using cosine
+```{r}
+pres_dfm <- tokens(corpus_subset(data_corpus_sotu, 
+                                 Date < "1830-01-01"), # what other columns could we filter by? Maybe party? Why?
+                                  remove_punct = TRUE) %>%
+  tokens_wordstem("en") %>%
+  tokens_remove(stopwords("en")) %>%
+  dfm() %>%
+  dfm_trim(min_termfreq = 5, 
+           min_docfreq = 3)
+
+# hierarchical clustering - get distances on normalized dfm
+pres_dist_mat <- dfm_weight(pres_dfm, 
+                            scheme = "prop") %>%
+    textstat_simil(method = "cosine") %>% 
+    as.dist()
+
+# hiarchical clustering the distance object
+pres_cluster <- hclust(pres_dist_mat)
+
+# label with document names
+pres_cluster$labels <- docnames(pres_dfm)
+
+# plot as a dendrogram
+plot(pres_cluster, xlab = "", sub = "", 
+     main = "Cosine Distance on Normalized Token Frequency")
+```
+
+
+## comparison wordclouds of Washington's eight SOTUs 
+
+(8 is the maximum that can be plotted in a single word cloud)
+```{r warning = FALSE}
+dfmat_sotu_washington <- dfmat_sotu[1:8,] # [R,C] is always ROW, COLUMN because matrices are REALLY COOL
+textplot_wordcloud(dfmat_sotu_washington, 
+                   max_size = 2, # what happens when we increase or decrease this parameter?
+                   labelsize = .5, 
+                   comparison = TRUE, 
+                   labeloffset = .05)
+```
+
+## comparison wordclouds of next eight SOTUs 
+```{r warning = FALSE}
+dfmat_sotu_adamsjeff <- dfmat_sotu[9:16,]
+textplot_wordcloud(dfmat_sotu_adamsjeff, 
+                   max_size = 2, 
+                   labelsize = .5, 
+                   comparison = TRUE, 
+                   labeloffset = .05)
+```
+
+## comparison wordclouds of Obama vs Trump SOTUs 
+```{r warning = FALSE}
+dfmat_sotu_obamatrump <- dfmat_sotu[234:241,]
+textplot_wordcloud(dfmat_sotu_obamatrump, 
+                   max_size = 2, 
+                   labelsize = .5, 
+                   comparison = TRUE, 
+                   labeloffset = .05)
+```

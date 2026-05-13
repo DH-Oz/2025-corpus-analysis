@@ -1,0 +1,791 @@
+---
+title: "Corpus Analysis Masterclass 3b"
+author: "Mark Alfano"
+date: "27 April 2025"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set working directory
+```{r}
+setwd("~/Documents/Philosophy/Experimental/R")
+```
+
+# load required packages
+```{r message=FALSE}
+require(readtext)
+require(quanteda)
+require(quanteda.textplots)
+require(quanteda.textstats)
+require(quanteda.textmodels)
+require(quanteda.dictionaries)
+require(quanteda.corpora)
+require(topicmodels)
+require(dplyr)
+require(tidyr)
+require(tidytext)
+require(ggplot2)
+require(network)
+require(igraph)
+require(gridExtra)
+library(lexicon)
+library(reshape2)
+library(stringi)
+```
+
+# Full-corpus analysis
+
+## Read Nietzsche's books into R and transform into a corpus
+```{r}
+nietzsche <- readtext("nietzsche/*")
+nietzsche
+nietzsche_corpus <- corpus(nietzsche)
+```
+
+# Summarize the full corpus. 
+
+This reveals that there are, for example, 741 sentences in The Antichrist, 1854 sentences in Beyond Good and Evil, and 803 sentences in Schopenhauer as Educator
+
+```{r}
+summary(nietzsche_corpus)
+```
+
+This is a slightly annoying format because the date and book name are combined. Let's split that column so that we can plot some yearly comparisons. We also have to coerce the new Year column to be numeric because otherwise R thinks it's a string variable.
+
+### Clean up corpus
+
+```{r}
+tokenInfo <- summary(nietzsche_corpus)
+tokenInfo <- separate(tokenInfo, 
+                      Text, 
+                      c('Year', 'Book'))
+tokenInfo$Year <- as.numeric(tokenInfo$Year)
+```
+
+## visualize word count, comparing different books
+```{r}
+ggplot(data=tokenInfo, 
+       aes(x = Year, 
+           y = Tokens, 
+           label = Book, 
+           group = 1)) + 
+  geom_point() + 
+  geom_label() +
+  theme_bw()
+```
+
+## save the plot
+```{r}
+ggsave("nietzscheWC.tiff", 
+       plot = last_plot(), 
+       device = tiff, 
+       dpi = 300) # why 300 dots per inch?
+```
+
+
+## Tokenize the corpus, remove stopwords and punctuation, and get a list of the most common words
+```{r}
+toks_nietzsche <- tokens(nietzsche_corpus, 
+                         remove_punct = TRUE)
+dfmat_nietzsche <- dfm(toks_nietzsche)
+dfmat_nietzsche <- dfm_remove(dfmat_nietzsche, 
+                              pattern = stopwords("de")) # note that we are now removing DEUTSCH stopwords, rather than english, but because of changes in spelling in German from the 19th century to now, we will have to create a custom stopword dictionary as well
+dfmat_nietzsche
+topfeatures(dfmat_nietzsche, 20)
+```
+
+## Remove custom stopwords as well
+```{r}
+custom_stop <- c("dass", "mehr", "immer", "ja", "wer", "sei", "diess")
+dfmat_nietzsche <- dfm_remove(dfmat_nietzsche, pattern = custom_stop)
+dfmat_nietzsche
+topfeatures(dfmat_nietzsche, 20)
+```
+
+## Generate a word cloud
+
+```{r warning = FALSE}
+set.seed(100)
+textplot_wordcloud(dfmat_nietzsche, 
+                   min_count = 6, 
+                   random_order = FALSE,
+                   rotation = .25,
+                   color = RColorBrewer::brewer.pal(8, "Dark2")
+                   )
+```
+
+## Run topic models using LDA
+
+```{r}
+set.seed(100)
+if (require(topicmodels)) {
+    my_lda_fit <- LDA(convert(dfmat_nietzsche, 
+                              to = "topicmodels"), 
+                      k = 8)
+    get_terms(my_lda_fit, 10)
+}
+```
+
+## To go beyond analyzing the whole corpus as a mass, we can also get the top features of each book
+```{r}
+topfeatures(dfmat_nietzsche, 
+            10, 
+            decreasing = TRUE, 
+            groups = docnames(dfmat_nietzsche)
+            )
+```
+
+## Use hierarchical clustering to establish the pairwise similarity of all books, then plot the results as a dendrogram.
+```{r}
+tstat_dist <- textstat_dist(dfm_weight(dfmat_nietzsche, 
+                                       scheme = "prop"))
+nietzsche_cluster <- hclust(as.dist(tstat_dist))
+nietzsche_cluster$labels <- docnames(dfmat_nietzsche)
+plot(nietzsche_cluster, xlab = "", sub = "", 
+     main = "Euclidean Distance on Normalized Token Frequency")
+```
+
+## comparison wordclouds of Nietzsche's first seven books, and another of the next eight
+
+(8 is the maximum that can be plotted in a single word cloud)
+```{r warning = FALSE}
+dfmat_nietzsche1 <- dfmat_nietzsche[1:7,]
+textplot_wordcloud(dfmat_nietzsche1, max_size = 1, labelsize = .5, comparison = TRUE, labeloffset = .05)
+```
+
+```{r warning = FALSE}
+dfmat_nietzsche2 <- dfmat_nietzsche[8:15,]
+textplot_wordcloud(dfmat_nietzsche2, max_size = 1, labelsize = .5, comparison = TRUE, labeloffset = .05)
+```
+
+# Lexical dispersion plots
+
+## Nietzsche on 'shame' ['schand*', 'schmach*', 'scham*']
+```{r}
+scham_kwic <- kwic(tokens(nietzsche_corpus), pattern = "scham*")
+schamch_kwic <- kwic(tokens(nietzsche_corpus), pattern = "schmach*")
+schand_kwic <- kwic(tokens(nietzsche_corpus), pattern = "schand*")
+
+shame <- textplot_xray(scham_kwic, 
+                       schamch_kwic, 
+                       schand_kwic, 
+                       scale = "absolute", # what happens when we use 'relative' instead?
+                       sort = TRUE) + 
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + 
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        axis.ticks.x = element_blank())
+shame
+```
+
+## Nietzsche on 'style' ['stil', 'stile', 'stils']
+```{r}
+stil_kwic <- kwic(tokens(nietzsche_corpus), pattern = "stil")
+stile_kwic <- kwic(tokens(nietzsche_corpus), pattern = "stile")
+stils_kwic <- kwic(tokens(nietzsche_corpus), pattern = "stils")
+
+style <- textplot_xray(stil_kwic, 
+                       stile_kwic, 
+                       stils_kwic, 
+                       scale = "absolute", 
+                       sort = TRUE) + # what happens when we use sort = FALSE?
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + 
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        axis.ticks.x = element_blank())
+style
+```
+
+
+## Nietzsche on 'virtue' ['tugend*']
+```{r}
+virtue_kwic <- kwic(tokens(nietzsche_corpus), pattern = "tugend*")
+
+virtue <- textplot_xray(virtue_kwic, 
+                        scale = "absolute", 
+                        sort = TRUE) + 
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + 
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        axis.ticks.x = element_blank())
+virtue
+```
+
+## save the plot
+```{r}
+ggsave("nietzschevirtue.tiff", 
+       plot = last_plot(), 
+       device = tiff, 
+       dpi = 300, 
+       bg = "white") # why a white background?
+```
+
+## Nietzsche on 'trust' ['vertrau*'] and 'mistrust' ['misstrau*']
+```{r}
+vertrau_kwic <- kwic(tokens(nietzsche_corpus), pattern = "vertrau*")
+misstrau_kwic <- kwic(tokens(nietzsche_corpus), pattern = "misstrau*")
+
+trust <- textplot_xray(vertrau_kwic, 
+                       misstrau_kwic, 
+                       scale = "absolute", 
+                       sort = TRUE) + 
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + 
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        axis.ticks.x = element_blank())
+trust
+```
+
+
+## Nietzsche on 'kultur' ['kultur*'] and 'cultur' ['cultur*']
+```{r}
+kultur_kwic <- kwic(tokens(nietzsche_corpus), pattern = "kultur*")
+cultur_kwic <- kwic(tokens(nietzsche_corpus), pattern = "cultur*")
+
+culture <- textplot_xray(kultur_kwic, 
+                         cultur_kwic, 
+                         scale = "absolute", 
+                         sort = TRUE) + 
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + 
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        axis.ticks.x = element_blank())
+culture
+```
+
+
+# LIWCalike analysis
+
+Next, we can examine moral psychological terms using LIWCalike
+
+## Load dictionary and run function:
+```{r}
+nietzschedic <- dictionary(file = "nietzsche.dic")
+LIWCanalysis_nietzsche <- liwcalike(nietzsche_corpus, nietzschedic)
+```
+
+### clean up LIWCalike output
+```{r}
+LIWCanalysis_nietzsche <- separate(LIWCanalysis_nietzsche, docname, c('Year', 'Book', 'Filler'))
+```
+
+
+### Further cleaning
+```{r}
+LIWCanalysis_nietzsche <- LIWCanalysis_nietzsche %>% mutate_at(c(9:72), as.numeric)
+```
+
+### Old way of doing it, very clunky
+```{r}
+LIWCanalysis_nietzsche$Sixltr <- as.numeric(as.character(LIWCanalysis_nietzsche$Sixltr))
+LIWCanalysis_nietzsche$instinct <- as.numeric(as.character(LIWCanalysis_nietzsche$instinct))
+LIWCanalysis_nietzsche$shame <- as.numeric(as.character(LIWCanalysis_nietzsche$shame))
+LIWCanalysis_nietzsche$style <- as.numeric(as.character(LIWCanalysis_nietzsche$style))
+LIWCanalysis_nietzsche$virtue <- as.numeric(as.character(LIWCanalysis_nietzsche$virtue))
+LIWCanalysis_nietzsche$culture <- as.numeric(as.character(LIWCanalysis_nietzsche$culture))
+```
+
+
+## Compare average length of sentences
+```{r}
+ggplot(data=LIWCanalysis_nietzsche, 
+       aes(x = Year, 
+           y = WPS, 
+           label = Book)) + 
+  geom_point() + 
+  geom_label() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Compare frequency of long words
+```{r}
+ggplot(data=LIWCanalysis_nietzsche, 
+       aes(x = Year, 
+           y = Sixltr, 
+           label = Book)) + 
+  geom_point() +
+  geom_label() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Compare frequency of 'intinct'
+```{r}
+ggplot(data=LIWCanalysis_nietzsche, 
+       aes(x = Year, 
+           y = instinct, 
+           label = Book)) + 
+  geom_point() + 
+  geom_label() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Compare frequency of 'shame'
+```{r}
+ggplot(data=LIWCanalysis_nietzsche, 
+       aes(x = Year, 
+           y = shame, 
+           label = Book)) + 
+  geom_point() + 
+  geom_label() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Compare frequency of 'style'
+```{r}
+ggplot(data=LIWCanalysis_nietzsche, 
+       aes(x = Year, 
+           y = style, 
+           label = Book)) + 
+  geom_point() + 
+  geom_label() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Compare frequency of 'virtue'
+```{r}
+ggplot(data=LIWCanalysis_nietzsche, 
+       aes(x = Year, 
+           y = virtue, 
+           label = Book)) + 
+  geom_point() + 
+  geom_label() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## save the plot
+```{r}
+ggsave("nietzschevirt.tiff", plot = last_plot(), device = tiff, dpi = 300, bg = "white")
+```
+
+## Compare frequency of 'culture'
+```{r}
+ggplot(data=LIWCanalysis_nietzsche, 
+       aes(x = Year, 
+           y = culture, 
+           label = Book)) + 
+  geom_point() + 
+  geom_label() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Transform the LIWCalike output into an adjacency matrix. Then transform adjacency matrix into a network object with parameters for node strength and edge weight
+```{r}
+LIWCanalysis_nietzsche_simple <- LIWCanalysis_nietzsche[,9:60] #subset only the desired columns
+
+
+M <- data.matrix(LIWCanalysis_nietzsche_simple) #transform to matrix
+T <- t(M) #build transpose matrix
+LIWCanalysis_nietzsche_adj <- (T %*% M) #MULTIPLY!
+
+nietzsche_network <- graph_from_adjacency_matrix(LIWCanalysis_nietzsche_adj, 
+                                                 mode = "undirected", 
+                                                 weighted = TRUE, 
+                                                 diag = FALSE)
+
+str <- strength(nietzsche_network)
+V(nietzsche_network)$size <- str*4
+E(nietzsche_network)$width <- E(nietzsche_network)$weight*4
+```
+
+## Plot the LIWCalike network using a circle layout.
+
+```{r}
+l <- layout_in_circle(nietzsche_network)
+l <- norm_coords(l, 
+                 ymin=-1, 
+                 ymax=1, 
+                 xmin=-2, 
+                 xmax=2)
+plot.igraph(nietzsche_network, 
+            layout=l*1, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+
+```
+
+## Same thing, but now at the level of the paragraph rather than the book
+
+```{r}
+paragraphs <- corpus_reshape(nietzsche_corpus, 
+                             to = 'paragraphs')
+head(paragraphs)
+```
+
+```{r}
+nietzschedic <- dictionary(file = "nietzsche.dic")
+LIWCanalysis_nietzsche_para <- liwcalike(paragraphs, 
+                                         nietzschedic)
+```
+
+```{r}
+LIWCanalysis_nietzsche_para <- separate(LIWCanalysis_nietzsche_para, 
+                                        docname, 
+                                        c('Year', 'Book', 'Filler', 'Section'))
+```
+
+```{r}
+LIWCanalysis_nietzsche_para_simple <- LIWCanalysis_nietzsche_para[,10:61]
+
+M <- data.matrix(LIWCanalysis_nietzsche_para_simple)
+T <- t(M)
+LIWCanalysis_nietzsche_para_adj <- (T %*% M)
+
+nietzsche_para_network <- graph_from_adjacency_matrix(LIWCanalysis_nietzsche_para_adj, 
+                                                      mode = "undirected", 
+                                                      weighted = TRUE, 
+                                                      diag = FALSE)
+
+str <- strength(nietzsche_para_network)
+V(nietzsche_para_network)$size <- str*.01
+E(nietzsche_para_network)$width <- E(nietzsche_para_network)$weight*.01
+```
+
+```{r}
+l <- layout_in_circle(nietzsche_para_network)
+l <- norm_coords(l, 
+                 ymin=-.5, 
+                 ymax=.5, 
+                 xmin=-1, 
+                 xmax=1)
+plot.igraph(nietzsche_para_network, 
+            layout=l*2, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+## paragraph-level egonet for 'solitude'
+subset the rows so that you only have ones where solitude > 0
+```{r}
+LIWCanalysis_solitude <- subset(LIWCanalysis_nietzsche_para_simple, 
+                                solitude > 0) #what's going on here??
+```
+
+```{r}
+M <- data.matrix(LIWCanalysis_solitude)
+T <- t(M)
+LIWCanalysis_solitude_adj <- (T %*% M)
+
+nietzsche_solitude_network <- graph_from_adjacency_matrix(LIWCanalysis_solitude_adj, 
+                                                          mode = "undirected", 
+                                                          weighted = TRUE, 
+                                                          diag = FALSE)
+
+str <- strength(nietzsche_solitude_network)
+V(nietzsche_solitude_network)$size <- str*.1
+E(nietzsche_solitude_network)$width <- E(nietzsche_solitude_network)$weight*.05
+```
+
+```{r}
+l <- layout_in_circle(nietzsche_solitude_network)
+l <- norm_coords(l, 
+                 ymin=-.5, 
+                 ymax=.5, 
+                 xmin=-1, 
+                 xmax=1)
+plot.igraph(nietzsche_solitude_network, 
+            layout=l*2, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+## paragraph-level egonet for 'style'
+Coerce the style column to numeric, then subset the rows so that you only have ones where style > 0
+```{r}
+LIWCanalysis_style <- subset(LIWCanalysis_nietzsche_para_simple, 
+                             style > 0)
+```
+
+```{r}
+M <- data.matrix(LIWCanalysis_style)
+T <- t(M)
+LIWCanalysis_style_adj <- (T %*% M)
+
+nietzsche_style_network <- graph_from_adjacency_matrix(LIWCanalysis_style_adj, 
+                                                       mode = "undirected", 
+                                                       weighted = TRUE, 
+                                                       diag = FALSE)
+
+str <- strength(nietzsche_style_network)
+V(nietzsche_style_network)$size <- str*.2
+E(nietzsche_style_network)$width <- E(nietzsche_style_network)$weight*.1
+```
+
+```{r}
+l <- layout_in_circle(nietzsche_style_network)
+l <- norm_coords(l, 
+                 ymin=-.5, 
+                 ymax=.5, 
+                 xmin=-1, 
+                 xmax=1)
+plot.igraph(nietzsche_style_network, 
+            layout=l*2, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5,
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+## paragraph-level egonet for 'modesty'
+Coerce the modesty column to numeric, then subset the rows so that you only have ones where modesty > 0
+```{r}
+LIWCanalysis_nietzsche_para_simple$modesty <- as.numeric(as.character(LIWCanalysis_nietzsche_para_simple$modesty))
+LIWCanalysis_modesty <- subset(LIWCanalysis_nietzsche_para_simple, 
+                               modesty > 0)
+```
+
+```{r}
+M <- data.matrix(LIWCanalysis_modesty)
+T <- t(M)
+LIWCanalysis_modesty_adj <- (T %*% M)
+
+nietzsche_modesty_network <- graph_from_adjacency_matrix(LIWCanalysis_modesty_adj, 
+                                                         mode = "undirected", 
+                                                         weighted = TRUE, 
+                                                         diag = FALSE)
+
+str <- strength(nietzsche_modesty_network)
+V(nietzsche_modesty_network)$size <- str*.1
+E(nietzsche_modesty_network)$width <- E(nietzsche_modesty_network)$weight*.05
+```
+
+```{r}
+l <- layout_in_circle(nietzsche_modesty_network)
+l <- norm_coords(l, 
+                 ymin=-.5, 
+                 ymax=.5, 
+                 xmin=-1, 
+                 xmax=1)
+plot.igraph(nietzsche_modesty_network, 
+            layout=l*2, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5,
+            vertex.label.color="black",
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+## paragraph-level egonet for 'humility'
+Coerce the humility column to numeric, then subset the rows so that you only have ones where humility > 0
+```{r}
+LIWCanalysis_nietzsche_para_simple$humility <- as.numeric(as.character(LIWCanalysis_nietzsche_para_simple$humility))
+LIWCanalysis_humility <- subset(LIWCanalysis_nietzsche_para_simple, 
+                                humility > 0)
+```
+
+```{r}
+M <- data.matrix(LIWCanalysis_humility)
+T <- t(M)
+LIWCanalysis_humility_adj <- (T %*% M)
+
+nietzsche_humility_network <- graph_from_adjacency_matrix(LIWCanalysis_humility_adj, 
+                                                          mode = "undirected", 
+                                                          weighted = TRUE, 
+                                                          diag = FALSE)
+
+str <- strength(nietzsche_humility_network)
+V(nietzsche_humility_network)$size <- str*2
+E(nietzsche_humility_network)$width <- E(nietzsche_humility_network)$weight*1.5
+```
+
+```{r}
+l <- layout_in_circle(nietzsche_humility_network)
+l <- norm_coords(l, 
+                 ymin=-.5, 
+                 ymax=.5, 
+                 xmin=-1, 
+                 xmax=1)
+plot.igraph(nietzsche_humility_network, 
+            layout=l*2, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+## paragraph-level egonet for 'shame'
+Coerce the shame column to numeric, then subset the rows so that you only have ones where shame > 0
+```{r}
+LIWCanalysis_nietzsche_para_simple$shame <- as.numeric(as.character(LIWCanalysis_nietzsche_para_simple$shame))
+LIWCanalysis_shame <- subset(LIWCanalysis_nietzsche_para_simple, 
+                             shame > 0)
+```
+
+```{r}
+M <- data.matrix(LIWCanalysis_shame)
+T <- t(M)
+LIWCanalysis_shame_adj <- (T %*% M)
+
+nietzsche_shame_network <- graph_from_adjacency_matrix(LIWCanalysis_shame_adj, 
+                                                       mode = "undirected", 
+                                                       weighted = TRUE, 
+                                                       diag = FALSE)
+
+str <- strength(nietzsche_shame_network)
+V(nietzsche_shame_network)$size <- str*.1
+E(nietzsche_shame_network)$width <- E(nietzsche_shame_network)$weight*.05
+```
+
+```{r}
+l <- layout_in_circle(nietzsche_shame_network)
+l <- norm_coords(l, 
+                 ymin=-.5, 
+                 ymax=.5, 
+                 xmin=-1, 
+                 xmax=1)
+plot.igraph(nietzsche_shame_network, 
+            layout=l*2, 
+            vertex.color="gray", 
+            vertex.frame.color="gray", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+## paragraph-level egonet for 'culture'
+Coerce the shame column to numeric, then subset the rows so that you only have ones where culture > 0
+```{r}
+LIWCanalysis_nietzsche_para_simple$culture <- as.numeric(as.character(LIWCanalysis_nietzsche_para_simple$culture))
+LIWCanalysis_culture <- subset(LIWCanalysis_nietzsche_para_simple, culture > 0)
+```
+
+```{r}
+M <- data.matrix(LIWCanalysis_culture)
+T <- t(M)
+LIWCanalysis_culture_adj <- (T %*% M)
+
+nietzsche_culture_network <- graph_from_adjacency_matrix(LIWCanalysis_culture_adj, 
+                                                         mode = "undirected", 
+                                                         weighted = TRUE, 
+                                                         diag = FALSE)
+
+str <- strength(nietzsche_culture_network)
+V(nietzsche_culture_network)$size <- str*.05
+E(nietzsche_culture_network)$width <- E(nietzsche_culture_network)$weight*.04
+```
+
+```{r}
+l <- layout_in_circle(nietzsche_culture_network)
+l <- norm_coords(l, 
+                 ymin=-.5, 
+                 ymax=.5, 
+                 xmin=-1, 
+                 xmax=1)
+plot.igraph(nietzsche_culture_network, 
+            layout=l*2, 
+            vertex.color="grey", 
+            vertex.frame.color="grey", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+## paragraph-level egonet for 'virtue'
+Coerce the virtue column to numeric, then subset the rows so that you only have ones where virtue > 0
+```{r}
+LIWCanalysis_nietzsche_para_simple$virtue <- as.numeric(as.character(LIWCanalysis_nietzsche_para_simple$virtue))
+LIWCanalysis_virtue <- subset(LIWCanalysis_nietzsche_para_simple, 
+                              virtue > 0)
+```
+
+```{r}
+M <- data.matrix(LIWCanalysis_virtue)
+T <- t(M)
+LIWCanalysis_virtue_adj <- (T %*% M)
+
+nietzsche_virtue_network <- graph_from_adjacency_matrix(LIWCanalysis_virtue_adj, 
+                                                        mode = "undirected", 
+                                                        weighted = TRUE, 
+                                                        diag = FALSE)
+
+str <- strength(nietzsche_virtue_network)
+V(nietzsche_virtue_network)$size <- str*.02
+E(nietzsche_virtue_network)$width <- E(nietzsche_virtue_network)$weight*.02
+```
+
+```{r}
+l <- layout_in_circle(nietzsche_virtue_network)
+l <- norm_coords(l, 
+                 ymin=-.5, 
+                 ymax=.5, 
+                 xmin=-1, 
+                 xmax=1)
+plot.igraph(nietzsche_virtue_network, 
+            layout=l*2, 
+            vertex.color="grey", 
+            vertex.frame.color="grey", 
+            vertex.label.cex=.5, 
+            vertex.label.color="black", 
+            rescale=F, 
+            vertex.label.family = "Helvetica")
+```
+
+
+## bottom-up collocation analysis
+
+### select words inside and outside desired window (10) from culture
+```{r}
+culture <- c("kultur*", "cultur*")
+toks_inside <- tokens_keep(toks_nietzsche, 
+                           pattern = culture, 
+                           window = 10)
+toks_inside <- tokens_remove(toks_inside, pattern = culture) # remove the keywords
+toks_outside <- tokens_remove(toks_nietzsche, pattern = culture, window = 10)
+```
+
+### compare inside and outside
+```{r}
+dfmat_inside <- dfm(toks_inside)
+dfmat_outside <- dfm(toks_outside)
+
+tstat_key_inside <- textstat_keyness(rbind(dfmat_inside, dfmat_outside), 
+                                     target = seq_len(ndoc(dfmat_inside)))
+head(tstat_key_inside, 50)
+```
+
+### select words inside and outside desired window (10) from tugend
+```{r}
+virtue <- c("tugend*")
+toks_inside <- tokens_keep(toks_nietzsche, pattern = virtue, window = 10)
+toks_inside <- tokens_remove(toks_inside, pattern = virtue) # remove the keywords
+toks_outside <- tokens_remove(toks_nietzsche, pattern = virtue, window = 10)
+```
+
+### compare inside and outside
+```{r}
+dfmat_inside <- dfm(toks_inside)
+dfmat_outside <- dfm(toks_outside)
+
+tstat_key_inside <- textstat_keyness(rbind(dfmat_inside, dfmat_outside), 
+                                     target = seq_len(ndoc(dfmat_inside)))
+head(tstat_key_inside, 50)
+```
+

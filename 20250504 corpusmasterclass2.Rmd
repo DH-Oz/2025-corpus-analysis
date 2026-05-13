@@ -1,0 +1,279 @@
+---
+title: "Corpus Masterclass 2"
+author: "Mark Alfano"
+date: "27 April 2025"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set working directory
+```{r}
+setwd("~/Documents/Philosophy/Experimental/R")
+```
+
+# load required packages
+```{r message=FALSE}
+require(readtext)
+require(quanteda)
+require(quanteda.textplots)
+require(quanteda.textstats)
+require(quanteda.textmodels)
+require(quanteda.dictionaries)
+require(quanteda.corpora)
+require(topicmodels)
+require(dplyr)
+require(tidyr)
+require(tidytext)
+require(ggplot2)
+require(network)
+require(igraph)
+require(gridExtra)
+library(lexicon)
+library(reshape2)
+library(stringi)
+```
+
+# LIWCalike analysis
+
+## We can examine various predefined constructs represented in each SOTU; standard liwc dictionary
+```{r}
+liwcdic <- dictionary(file = "liwcdict.dic")
+LIWCanalysis <- liwcalike(data_corpus_sotu, 
+                          liwcdic)
+head(LIWCanalysis)
+```
+
+### clean up LIWCalike output (could do more carefully, but why bother with Martin van Buren? He was basically Dutch)
+```{r}
+LIWCanalysis <- separate(LIWCanalysis, 
+                         docname, 
+                         c('president', 'year'))
+
+LIWCanalysis$president <- replace(LIWCanalysis$president, 
+                                  LIWCanalysis$president == "van", "vanBuren")
+
+LIWCanalysis$year <- replace(LIWCanalysis$year, 
+                             LIWCanalysis$year == "Buren", 1838)
+```
+
+### Further cleaning
+
+```{r}
+LIWCanalysis <- LIWCanalysis %>% mutate_at(c(2:92), 
+                                           as.numeric)
+```
+
+### old way of doing it, column by column... it works but it's very clunky
+```{r}
+LIWCanalysis$year <- as.numeric(LIWCanalysis$year) 
+LIWCanalysis$Sixltr <- as.numeric(LIWCanalysis$Sixltr)
+LIWCanalysis$Posemo <- as.numeric(LIWCanalysis$posemo)
+LIWCanalysis$Anx <- as.numeric(LIWCanalysis$anx)
+LIWCanalysis$Anger <- as.numeric(LIWCanalysis$anger)
+LIWCanalysis$Sad <- as.numeric(LIWCanalysis$sad)
+```
+
+## Now we can get the word counts from all SOTUs
+```{r}
+ggplot(data=LIWCanalysis, 
+       aes(x = year, y = WC)) + 
+      geom_line() + # is a line the best way to plot this data?
+      geom_point() + # maybe a histogram?
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+## And various emotions
+```{r}
+ggplot(data=LIWCanalysis, 
+       aes(x = year, y = posemo)) + 
+      geom_line() + 
+      geom_point() + 
+      theme(axis.text.x = element_text(angle = 90)) # what happens when we change the angle?
+```
+
+```{r}
+ggplot(data=LIWCanalysis, 
+       aes(x = year, y = anx)) + 
+      geom_line() + geom_point() + 
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+ggplot(data=LIWCanalysis, 
+       aes(x = year, y = anger)) + 
+      geom_line() + 
+      geom_point() + 
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+ggplot(data=LIWCanalysis, 
+       aes(x = year, y = sad)) + 
+      geom_line() + 
+      geom_point() + 
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+ggplot(data=LIWCanalysis, 
+       aes(x = year, y = pronoun)) + 
+      geom_line() + 
+      geom_point() + 
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+
+### Can we do all of them with a for loop?
+
+```{r}
+
+# Brian HALP!
+
+
+```
+
+
+## We can also examine the moral values represented in each SOTU, using the e-mac dictionary
+```{r}
+macdvirtue <- dictionary(file = "macdvirtue.dic")
+LIWCanalysis_mac <- liwcalike(data_corpus_sotu, macdvirtue)
+```
+
+### clean up LIWCalike output
+```{r}
+LIWCanalysis_mac <- separate(LIWCanalysis_mac, docname, c('president', 'year'))
+LIWCanalysis_mac$president <- replace(LIWCanalysis_mac$president, LIWCanalysis_mac$president == "van", "vanBuren")
+LIWCanalysis_mac$year <- replace(LIWCanalysis_mac$year, LIWCanalysis_mac$year == "Buren", 1838)
+```
+
+### Further cleaning
+
+```{r}
+LIWCanalysis_mac <- LIWCanalysis_mac %>% mutate_at(c(2:26), as.numeric)
+```
+
+### old way, very clunky...
+```{r}
+LIWCanalysis_mac$year <- as.numeric(LIWCanalysis_mac$year)
+LIWCanalysis_mac$Family <- as.numeric(LIWCanalysis_mac$family)
+LIWCanalysis_mac$Group <- as.numeric(LIWCanalysis_mac$group)
+LIWCanalysis_mac$Reciprocity <- as.numeric(LIWCanalysis_mac$reciprocity)
+LIWCanalysis_mac$Heroism <- as.numeric(LIWCanalysis_mac$heroism)
+LIWCanalysis_mac$Deference <- as.numeric(LIWCanalysis_mac$deference)
+LIWCanalysis_mac$Fairness <- as.numeric(LIWCanalysis_mac$fairness)
+LIWCanalysis_mac$Property <- as.numeric(LIWCanalysis_mac$property)
+```
+
+
+## MAC virtues in SOTU speeches
+```{r}
+ggplot(data=LIWCanalysis_mac, 
+       aes(x = year, y = family)) + 
+      geom_line() + 
+      geom_point() +
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+ggplot(data=LIWCanalysis_mac, 
+       aes(x = year, y = group)) + 
+      geom_line() + 
+      geom_point() +
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+ggplot(data=LIWCanalysis_mac, 
+       aes(x = year, y = reciprocity)) + 
+      geom_line() + 
+      geom_point() +
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+ggplot(data=LIWCanalysis_mac, 
+       aes(x = year, y = heroism)) + 
+      geom_line() + 
+      geom_point() +
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+ggplot(data=LIWCanalysis_mac, 
+       aes(x = year, y = deference)) + 
+      geom_line() + 
+      geom_point() +
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+ggplot(data=LIWCanalysis_mac, 
+       aes(x = year, y = fairness)) + 
+      geom_line() + 
+      geom_point() +
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+ggplot(data=LIWCanalysis_mac, 
+       aes(x = year, y = property)) + 
+      geom_line() + 
+      geom_point() +
+      theme(axis.text.x = element_text(angle = 90))
+```
+
+
+## Transform the LIWCalike output into an adjacency matrix.   
+
+```{r}
+LIWCanalysis_mac_simple <- LIWCanalysis_mac[,8:14] # subset out only the columns representing the moral elements
+
+M <- data.matrix(LIWCanalysis_mac_simple) # transform to matrix
+T <- t(M) # create transpose of the matrix
+LIWCanalysis_mac_adj <- (T %*% M) # multiply transpose by original matrix to create adjacency matrix
+```
+
+## transform adjacency matrix into a network object.
+
+```{r}
+mac_network <- graph_from_adjacency_matrix(LIWCanalysis_mac_adj, 
+                                           mode = "undirected", # why?
+                                           weighted = TRUE, # why?
+                                           diag = FALSE) # why?
+```
+
+## weight nodes (vertices) and edges of the network
+```{r}
+str <- strength(mac_network)
+V(mac_network)$size <- str*1.5 # why 1.5?
+E(mac_network)$width <- E(mac_network)$weight
+
+```
+
+## plot the LIWCalike network using a couple different layouts (fruchterman-reingold, circle).
+```{r}
+l <- layout_with_fr(mac_network)
+plot(mac_network, 
+     layout=l, 
+     vertex.color="pink", # what other colors might we use? Why?
+     vertex.frame.color="pink", 
+     vertex.label.color="black")
+```
+
+```{r}
+l <- layout_in_circle(mac_network)
+plot(mac_network, 
+     layout=l, 
+     vertex.color="pink", 
+     vertex.frame.color="pink", 
+     vertex.label.color="black")
+```

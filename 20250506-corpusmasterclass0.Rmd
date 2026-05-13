@@ -1,0 +1,63 @@
+---
+title: "Corpus Masterclass 0"
+author: "Mark Alfano"
+date: "27 April 2025"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set working directory
+```{r}
+setwd("~/Documents/Philosophy/Experimental/R")
+```
+
+## Windows Users
+
+Make sure you've got RTools installed (Windows Users)
+
+[https://cran.r-project.org/bin/windows/Rtools/rtools45/rtools.html]
+
+Windows only check with: 
+```{r}
+find.package("pkgbuild")
+```
+
+## Mac users
+
+If you're having trouble, [https://quanteda.io/articles/pkgdown/parallelisation.html#for-macos-users]
+
+## Linux users
+
+Magical invocation: `sudo apt install build-essential gcc libtbb-dev liblapack-dev libopenblas-dev libpoppler-cpp-dev libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libharfbuzz-dev libfribidi-dev libcurl4-openssl-dev gfortran`
+
+Ia Ia Cthulhu F'tagn... 
+
+
+# Install packages
+```{r}
+install.packages(c("readtext", "topicmodels", "dplyr", "tidyr", "tidytext", "ggplot2", "network", "igraph", "RCurl", "stringr", "tm", "textstem", "qdapDictionaries", "lsa", "LSAfun", "wordcloud", "gridExtra",  "reshape2", "rmarkdown", "knitr"))
+
+
+install.packages(c("quanteda", "quanteda.textplots", "quanteda.textmodels", "quanteda.textstats"))
+```
+
+# install developer tools and special packages
+
+## PC users: search for and install Rtools; restart R Studio; then run the following chunk
+
+```{r}
+install.packages("devtools")
+library(devtools)
+devtools::install_github("quanteda/quanteda.corpora")
+devtools::install_github("kbenoit/quanteda.dictionaries")
+
+```
