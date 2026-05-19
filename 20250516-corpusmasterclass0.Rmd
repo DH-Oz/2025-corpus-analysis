@@ -17,7 +17,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Set working directory
 ```{r}
-setwd("~/Documents/Philosophy/Experimental/R")
+setwd("~/people/Mark/2025-CorpusLinguistics/")
 ```
 
 ## Windows Users
@@ -37,7 +37,7 @@ If you're having trouble, [https://quanteda.io/articles/pkgdown/parallelisation.
 
 ## Linux users
 
-Magical invocation: `sudo apt install build-essential gcc libtbb-dev liblapack-dev libopenblas-dev libpoppler-cpp-dev libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libharfbuzz-dev libfribidi-dev libcurl4-openssl-dev gfortran`
+<!-- Magical invocation: `sudo apt install build-essential gcc libfontconfig1-dev libgsl-dev libtbb-dev liblapack-dev libopenblas-dev libpoppler-cpp-dev libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libharfbuzz-dev libfribidi-dev libcurl4-openssl-dev gfortran` -->
 
 Ia Ia Cthulhu F'tagn... 
 

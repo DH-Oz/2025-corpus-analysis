@@ -17,7 +17,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Set working directory
 ```{r}
-setwd("~/Documents/Philosophy/Experimental/R")
+setwd("~/people/Mark/2025-CorpusLinguistics/")
 ```
 
 # load required packages
@@ -75,6 +75,7 @@ LIWCanalysis <- LIWCanalysis %>% mutate_at(c(2:92),
 ### old way of doing it, column by column... it works but it's very clunky
 ```{r}
 LIWCanalysis$year <- as.numeric(LIWCanalysis$year) 
+LIWCanalysis$party <- data_corpus_sotu$party
 LIWCanalysis$Sixltr <- as.numeric(LIWCanalysis$Sixltr)
 LIWCanalysis$Posemo <- as.numeric(LIWCanalysis$posemo)
 LIWCanalysis$Anx <- as.numeric(LIWCanalysis$anx)
@@ -84,10 +85,17 @@ LIWCanalysis$Sad <- as.numeric(LIWCanalysis$sad)
 
 ## Now we can get the word counts from all SOTUs
 ```{r}
+colors<-c("yellow","pink", "purple", "blue", "magenta", "red")
+parties <- unique(data_corpus_sotu$party)
+party_colors <- setNames(colors[1:length(parties)], parties)
 ggplot(data=LIWCanalysis, 
-       aes(x = year, y = WC)) + 
-      geom_line() + # is a line the best way to plot this data?
+       aes(x = year, y = WC, color=party)) + 
+      # geom_line() + # is a line the best way to plot this data?
       geom_point() + # maybe a histogram?
+      geom_segment( aes(x=year, xend=year, y=0, yend=WC))+
+      scale_color_manual(values = party_colors) +
+
+      # geom_bar() +
       theme(axis.text.x = element_text(angle = 90))
 ```
 
@@ -133,11 +141,32 @@ ggplot(data=LIWCanalysis,
 
 
 ### Can we do all of them with a for loop?
+```{r}
+install.packages("patchwork")
+require("patchwork")
+```
+
 
 ```{r}
 
-# Brian HALP!
+emotion_plots <- list()
+emotions <- list("sad", "anger", "anx")
 
+for (emotion in emotions) {
+  print(emotion)
+  emotion_plot <- ggplot(data=LIWCanalysis, 
+      aes(.data[["year"]], .data[[emotion]])) + 
+      geom_line() + 
+      geom_point() + 
+      theme(axis.text.x = element_text(angle = 90)) +
+    ggtitle(paste0("year v ",emotion))
+
+  ggsave(filename = paste0("year_vs_", emotion, ".png"), 
+         plot = emotion_plot, 
+         width = 8, 
+         height = 6)
+  
+}
 
 ```
 

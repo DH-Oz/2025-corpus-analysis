@@ -17,7 +17,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Set working directory
 ```{r}
-setwd("~/Documents/Philosophy/Experimental/R")
+setwd("~/people/Mark/2025-CorpusLinguistics/")
 ```
 
 # load required packages
