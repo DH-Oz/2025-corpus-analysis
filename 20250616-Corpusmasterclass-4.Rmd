@@ -1,0 +1,664 @@
+---
+title: "20250616-CorpusMasterclass-4.Rmd"
+author: "Brian Ballsun-Stanton"
+date: "2025-06-16"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set working directory
+```{r}
+setwd("~/people/Mark/2025-CorpusLinguistics/")
+```
+
+# Install new packages for today
+```{r}
+# internetarchive: Access to Internet Archive's API
+# Documentation: https://docs.ropensci.org/internetarchive/
+devtools::install_github("ropensci/internetarchive", build_vignettes = TRUE)
+
+# stringr: Modern string manipulation (part of tidyverse)
+# Documentation: https://stringr.tidyverse.org/
+# We may have used this before, but let's be sure
+install.packages("stringr")
+```
+
+# Load required packages
+```{r message=FALSE}
+# Core text analysis packages we've used before
+require(quanteda)
+require(quanteda.textplots)
+require(quanteda.textstats)
+require(tidytext)
+require(dplyr)
+require(ggplot2)
+
+# New package for downloading from Internet Archive
+# Documentation: https://docs.ropensci.org/internetarchive/
+require(internetarchive)
+
+# For handling strings and cleaning
+# Documentation: https://stringr.tidyverse.org/
+require(stringr)
+```
+
+# Today's Goal: Building a Corpus from Scratch
+
+Today we'll learn how to:
+1. Download historical texts from the Internet Archive
+2. Extract metadata and organize our files properly  
+3. Clean OCR'd text (Optical Character Recognition often has errors)
+4. Use **functions** to avoid repeating ourselves
+5. Use **loops** to process multiple texts efficiently
+6. Analyze our corpus using TF-IDF (Term Frequency-Inverse Document Frequency)
+7. Visualize how distinctive terms appear across documents
+
+## A Note on Pipes (%>%)
+
+You've been using `%>%` throughout this course. This is called a "pipe" and it means "take the result of the left side and use it as the first argument on the right side." Think of it as "and then..."
+
+```{r}
+# Without pipes (harder to read):
+result <- tolower("HELLO WORLD")
+result <- str_trim(result)
+print(result)
+
+# With pipes (easier to read - flows like a sentence):
+result <- "HELLO WORLD" %>%
+  tolower() %>%
+  str_trim()
+print(result)
+```
+
+# Part 1: Manual Download - Understanding Each Step
+
+Let's download our first text: Norbert Wiener's "Cybernetics" (1948). We'll do this step-by-step to understand what's happening.
+
+## Step 1: Search for the item
+```{r}
+# The identifier for Wiener's Cybernetics
+wiener_id <- "wiener-1938"
+
+# Get metadata about this item from the Internet Archive
+# This asks the Internet Archive: "Tell me about this item"
+item_metadata <- ia_get_items(wiener_id)
+
+# Let's see what we got
+print(item_metadata)
+```
+
+## Step 2: Extract the metadata we need
+```{r}
+# The metadata comes in a complex structure. Let's extract what we need:
+# Title, creator (author), and date
+
+# First, let's look at what metadata fields are available
+names(item_metadata$metadata)
+```
+
+```{r}
+# Now extract the specific fields we want
+title <- item_metadata$metadata$title
+creator <- item_metadata$metadata$creator  
+date <- item_metadata$metadata$date
+
+# Print what we found
+print(paste("Title:", title))
+print(paste("Creator:", creator))
+print(paste("Date:", date))
+```
+
+## Step 3: Download the text file
+```{r}
+# Internet Archive stores multiple file formats. We want the plain text (.txt) version
+# First, let's see what files are available
+files_available <- ia_files(wiener_id)
+print(files_available)
+```
+
+```{r}
+# Find the .txt file
+txt_files <- files_available %>%
+  filter(str_detect(name, "\\.txt$"))  # $ means "at the end of the string"
+
+print(txt_files)
+
+# Get the filename
+txt_filename <- txt_files$name[1]  # Take the first .txt file
+print(paste("Text file:", txt_filename))
+```
+
+## Step 4: Actually download the file
+```{r}
+# Download the text content
+text_content <- ia_download_text(wiener_id, txt_filename)
+
+# Let's see the first 500 characters
+cat(substr(text_content, 1, 500))
+```
+
+## Step 5: Create a proper filename with metadata
+```{r}
+# Extract year from date (take first 4 characters)
+year <- substr(date, 1, 4)
+
+# Clean up creator name (remove special characters)
+creator_clean <- str_replace_all(creator, "[^A-Za-z0-9 ]", "")  # Keep only letters, numbers, spaces
+creator_clean <- str_replace_all(creator_clean, " ", "_")  # Replace spaces with underscores
+
+# Clean up title  
+title_clean <- str_replace_all(title, "[^A-Za-z0-9 ]", "")
+title_clean <- str_replace_all(title_clean, " ", "_")
+
+# Create filename: Year_Author_Title_(identifier).txt
+# We keep the identifier to ensure uniqueness
+filename <- paste0(year, "_", creator_clean, "_", title_clean, "_(", wiener_id, ").txt")
+print(paste("Filename:", filename))
+```
+
+## Step 6: Save the file
+```{r}
+# Create a directory for our corpus if it doesn't exist
+if (!dir.exists("corpus_day4")) {
+  dir.create("corpus_day4")
+}
+
+# Save the text
+writeLines(text_content, file.path("corpus_day4", filename))
+print(paste("Saved:", filename))
+```
+
+# Part 2: Creating a Function - Don't Repeat Yourself!
+
+Now we've downloaded one file, but we have 4 more to get. We COULD copy and paste all that code 4 times... but that would be:
+- Tedious
+- Error-prone  
+- Hard to maintain
+- Not scalable
+
+Instead, let's create a **function** - a reusable piece of code.
+
+## What is a function?
+
+A function is like a recipe:
+- It has a name
+- It takes ingredients (inputs/arguments)
+- It follows steps (the code inside)
+- It produces a result (output)
+
+```{r}
+# Here's our download function
+# We're wrapping all the steps we just did into one reusable package
+
+download_ia_text <- function(identifier) {
+  # This function takes one input: an Internet Archive identifier
+  # It downloads the text and saves it with proper metadata
+  
+  print(paste("Processing:", identifier))
+  
+  # Step 1: Get metadata
+  item_metadata <- ia_get_items(identifier)
+  
+  # Step 2: Extract metadata fields
+  title <- item_metadata$metadata$title
+  creator <- item_metadata$metadata$creator  
+  date <- item_metadata$metadata$date
+  
+  # Step 3: Find the text file
+  files_available <- ia_files(identifier)
+  txt_files <- files_available %>%
+    filter(str_detect(name, "\\.txt$"))
+  
+  # Check if we found a text file
+  if (nrow(txt_files) == 0) {
+    warning(paste("No .txt file found for", identifier))
+    return(NULL)  # Exit the function early
+  }
+  
+  txt_filename <- txt_files$name[1]
+  
+  # Step 4: Download the text
+  text_content <- ia_download_text(identifier, txt_filename)
+  
+  # Step 5: Create proper filename
+  year <- substr(date, 1, 4)
+  creator_clean <- str_replace_all(creator, "[^A-Za-z0-9 ]", "")
+  creator_clean <- str_replace_all(creator_clean, " ", "_")
+  title_clean <- str_replace_all(title, "[^A-Za-z0-9 ]", "")
+  title_clean <- str_replace_all(title_clean, " ", "_")
+  
+  filename <- paste0(year, "_", creator_clean, "_", title_clean, "_(", identifier, ").txt")
+  
+  # Step 6: Save the file
+  writeLines(text_content, file.path("corpus_day4", filename))
+  
+  print(paste("Successfully saved:", filename))
+  
+  # Return information about what we downloaded
+  # This creates a one-row data frame with our metadata
+  return(data.frame(
+    identifier = identifier,
+    year = as.numeric(year),
+    author = creator,
+    title = title,
+    filename = filename,
+    stringsAsFactors = FALSE
+  ))
+}
+```
+
+## Test our function
+```{r}
+# Let's test with Shannon's information theory paper
+shannon_info <- download_ia_text("in.ernet.dli.2015.503815")
+print(shannon_info)
+```
+
+# Part 3: Using Loops - Process Multiple Items
+
+Now we have a function, but we still need to call it multiple times. Enter the **loop**!
+
+## What is a loop?
+
+A loop repeats code for each item in a list. Instead of:
+```
+download_ia_text("id1")
+download_ia_text("id2")  
+download_ia_text("id3")
+```
+
+We can write:
+```
+for (id in list_of_ids) {
+  download_ia_text(id)
+}
+```
+
+## Download our remaining texts
+```{r}
+# List of remaining identifiers
+identifiers <- c(
+  "MIND--COMPUTING-MACHINERY-AND-INTELLIGENCE",  # Turing
+  "anarchy_Cyborg_Manifesto_Harroway",          # Haraway
+  "elizabeth-anscombe-metaphysics-and-philosophy-of-mind"  # Anscombe
+)
+
+# Create an empty list to store our results
+# Lists in R can hold different types of data
+corpus_metadata <- list()
+
+# We already have Wiener and Shannon, so let's add them
+corpus_metadata[[1]] <- data.frame(
+  identifier = "wiener-1938",
+  year = 1948,
+  author = "Norbert Wiener",
+  title = "Cybernetics",
+  filename = list.files("corpus_day4", pattern = "wiener", full.names = FALSE)[1],
+  stringsAsFactors = FALSE
+)
+
+corpus_metadata[[2]] <- shannon_info
+
+# Now loop through the remaining texts
+# The loop says: "For each identifier in our list, do the following:"
+for (i in 1:length(identifiers)) {
+  # Download the text and get its metadata
+  result <- download_ia_text(identifiers[i])
+  
+  # Add to our metadata list
+  # i+2 because we already have 2 items
+  corpus_metadata[[i + 2]] <- result
+  
+  # Pause for 2 seconds to be polite to Internet Archive's servers
+  Sys.sleep(2)
+}
+
+# Combine all metadata into one data frame
+# do.call applies a function (rbind) to a list of arguments
+corpus_df <- do.call(rbind, corpus_metadata)
+print(corpus_df)
+```
+
+# Part 4: Text Cleaning Function
+
+OCR'd texts often have artifacts. Let's create a function to clean them.
+
+## First, let's examine what we're dealing with
+```{r}
+# Read one of our downloaded files
+sample_file <- file.path("corpus_day4", corpus_df$filename[1])
+sample_text <- readLines(sample_file)
+
+# Look at the first 20 lines
+cat(sample_text[1:20], sep = "\n")
+```
+
+## Create a cleaning function
+```{r}
+clean_text <- function(text_lines) {
+  # This function takes a vector of text lines and cleans them
+  # Input: character vector (one element per line)
+  # Output: single cleaned string
+  
+  # Step 1: Combine all lines into one string
+  text <- paste(text_lines, collapse = " ")
+  
+  # Step 2: Basic cleaning
+  text <- text %>%
+    str_replace_all("\\s+", " ") %>%  # Replace multiple spaces with single space
+    str_replace_all("- ", "") %>%      # Remove hyphenation at line breaks
+    str_trim()                         # Remove leading/trailing whitespace
+  
+  return(text)
+}
+
+# Test our cleaning function
+sample_cleaned <- clean_text(sample_text)
+cat(substr(sample_cleaned, 1, 500))
+```
+
+# Part 5: Building Our Corpus
+
+Now let's read all our texts and create a proper corpus object.
+
+```{r}
+# Initialize an empty list for our texts
+texts <- list()
+
+# Loop through each file and read it
+for (i in 1:nrow(corpus_df)) {
+  # Construct the full file path
+  filepath <- file.path("corpus_day4", corpus_df$filename[i])
+  
+  # Read the file
+  text_lines <- readLines(filepath)
+  
+  # Clean the text
+  cleaned_text <- clean_text(text_lines)
+  
+  # Store in our list
+  texts[[i]] <- cleaned_text
+  
+  # Give it a name based on the metadata
+  names(texts)[i] <- paste(corpus_df$year[i], corpus_df$author[i])
+}
+
+# Create a quanteda corpus
+# We're building this properly from the start so it can scale!
+corpus_texts <- corpus(texts)
+
+# Add our metadata to the corpus
+docvars(corpus_texts) <- corpus_df
+
+# Check what we have
+summary(corpus_texts)
+```
+
+# Part 6: Tokenization and Identifying OCR Artifacts
+
+Let's tokenize and see what OCR artifacts we need to clean.
+
+```{r}
+# Tokenize
+toks <- tokens(corpus_texts, 
+               remove_punct = TRUE,
+               remove_numbers = TRUE)
+
+# Create document-feature matrix
+dfm_texts <- dfm(toks)
+
+# Look at the most frequent features
+topfeatures(dfm_texts, 50)
+```
+
+## Identify and remove OCR artifacts
+```{r}
+# Common OCR artifacts are:
+# - Single letters (except "a" and "I")
+# - Very long "words" (likely run-together text)
+# - Repeated characters
+
+# Let's see what single/double character tokens we have
+short_tokens <- topfeatures(dfm_texts, 200)
+short_tokens <- names(short_tokens[nchar(names(short_tokens)) <= 2])
+print(short_tokens)
+
+# Create custom stopwords combining English stopwords and OCR artifacts
+custom_stop <- c(
+  stopwords("en"),
+  short_tokens[!short_tokens %in% c("a", "i")],  # Keep "a" and "I"
+  "pg", "pp", "vol", "ed", "eds", "cf",          # Common academic abbreviations
+  "ii", "iii", "iv", "v", "vi", "vii", "viii"   # Roman numerals
+)
+
+# Rebuild our dfm with custom stopwords
+dfm_clean <- dfm_texts %>%
+  dfm_remove(pattern = custom_stop) %>%
+  dfm_trim(min_termfreq = 2)  # Remove terms that appear only once
+
+# Check our cleaned top features
+topfeatures(dfm_clean, 30)
+```
+
+# Part 7: TF-IDF Analysis
+
+TF-IDF helps us find words that are distinctive to each document.
+
+```{r}
+# Calculate TF-IDF
+dfm_tfidf <- dfm_tfidf(dfm_clean)
+
+# For each document, find the top 10 TF-IDF terms
+# This tells us what makes each text unique
+for (i in 1:ndoc(dfm_tfidf)) {
+  doc_name <- docnames(dfm_tfidf)[i]
+  
+  # Get TF-IDF scores for this document
+  scores <- dfm_tfidf[i, ]
+  
+  # Sort and get top 10
+  top_terms <- sort(scores, decreasing = TRUE)[1:10]
+  
+  cat("\n", doc_name, "- Distinctive terms:\n")
+  print(top_terms)
+}
+```
+
+## Extract top 2 terms per document for visualization
+```{r}
+# Create a data frame to store our top terms
+top_terms_df <- data.frame()
+
+for (i in 1:ndoc(dfm_tfidf)) {
+  # Get document info
+  doc_name <- docnames(dfm_tfidf)[i]
+  doc_year <- docvars(dfm_tfidf)$year[i]
+  doc_author <- docvars(dfm_tfidf)$author[i]
+  
+  # Get TF-IDF scores
+  scores <- dfm_tfidf[i, ]
+  
+  # Get top 2 terms
+  top_2 <- sort(scores, decreasing = TRUE)[1:2]
+  
+  # Add to our data frame
+  for (j in 1:2) {
+    top_terms_df <- rbind(top_terms_df, data.frame(
+      term = names(top_2)[j],
+      tfidf = as.numeric(top_2[j]),
+      document = doc_name,
+      year = doc_year,
+      author = doc_author,
+      rank = j,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+print(top_terms_df)
+```
+
+# Part 8: Visualizing Term Distribution
+
+Now let's see how each document's distinctive terms appear across ALL documents.
+
+```{r}
+# Get unique terms from our top terms
+terms_to_plot <- unique(top_terms_df$term)
+print(paste("Tracking these terms:", paste(terms_to_plot, collapse = ", ")))
+
+# Create a color mapping for terms by their source document
+term_colors <- top_terms_df %>%
+  group_by(term) %>%
+  slice(1) %>%  # Take first occurrence of each term
+  select(term, document)
+
+# Create keyword-in-context for all our terms
+kwic_results <- list()
+
+for (term in terms_to_plot) {
+  kwic_results[[term]] <- kwic(toks, pattern = term)
+}
+
+# Combine all kwic results
+all_kwic <- do.call(rbind, kwic_results)
+```
+
+## Create the lexical dispersion plot
+```{r fig.width=10, fig.height=8}
+# Sort corpus by year for chronological display
+corpus_sorted <- corpus_texts[order(docvars(corpus_texts)$year)]
+
+# Create tokens from sorted corpus
+toks_sorted <- tokens(corpus_sorted, 
+                      remove_punct = TRUE,
+                      remove_numbers = TRUE)
+
+# Plot lexical dispersion
+# Each row is a term, each column is position in text
+# Color intensity shows frequency
+textplot_xray(
+  kwic(toks_sorted, pattern = terms_to_plot),
+  scale = "relative",  # Use relative position so different length texts are comparable
+  sort = FALSE  # Keep chronological order
+) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(size = 14, face = "bold")
+  ) +
+  labs(
+    title = "Distinctive Terms Across Early Computing & Philosophy Texts",
+    subtitle = "Terms sized by TF-IDF importance in their source documents",
+    x = "Relative Position in Document",
+    y = "Term"
+  )
+```
+
+## Alternative visualization with document labels
+```{r fig.width=12, fig.height=8}
+# Create a more informative plot with document boundaries
+# First, we need to track which terms come from which documents
+
+# Create a color palette
+library(RColorBrewer)
+doc_colors <- brewer.pal(n = ndoc(corpus_texts), name = "Set3")
+
+# Create a mapping of terms to their source document colors
+term_source <- top_terms_df %>%
+  group_by(term) %>%
+  slice(1) %>%
+  mutate(color = doc_colors[as.numeric(as.factor(document))])
+
+# Create individual kwic for each term to maintain source info
+plot_data <- data.frame()
+
+for (i in 1:nrow(top_terms_df)) {
+  term <- top_terms_df$term[i]
+  source_doc <- top_terms_df$document[i]
+  
+  # Get kwic for this term
+  kwic_term <- kwic(toks_sorted, pattern = term)
+  
+  if (nrow(kwic_term) > 0) {
+    # Add source document info
+    kwic_df <- as.data.frame(kwic_term)
+    kwic_df$source_document <- source_doc
+    kwic_df$term <- term
+    
+    plot_data <- rbind(plot_data, kwic_df)
+  }
+}
+
+# Create a custom plot
+library(ggplot2)
+ggplot(plot_data, aes(x = from, y = term, color = source_document)) +
+  geom_point(alpha = 0.7, size = 2) +
+  facet_wrap(~ docname, scales = "free_x", ncol = 1) +
+  scale_color_brewer(palette = "Set3", name = "Term Source") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(size = 10, face = "bold"),
+    legend.position = "bottom"
+  ) +
+  labs(
+    title = "Cross-Pollination of Distinctive Terms in Early Computing Texts",
+    subtitle = "Each term is colored by the document where it has highest TF-IDF score",
+    x = "Position in Document",
+    y = "Term"
+  )
+```
+
+# Summary: What We've Learned
+
+Today we've built a complete corpus analysis pipeline using:
+
+1. **Functions** - Reusable code blocks that:
+   - Take inputs (arguments)
+   - Process data
+   - Return outputs
+   - Save us from repetition
+
+2. **Loops** - Code that repeats for each item in a collection:
+   - `for` loops iterate through lists
+   - Process multiple files efficiently
+   - Build scalable workflows
+
+3. **Good Design Principles**:
+   - Store data in scalable structures (lists, data frames)
+   - Build metadata management into our workflow
+   - Create clean, reusable functions
+   - Document our code with comments
+
+4. **Practical Skills**:
+   - Downloading texts from Internet Archive
+   - Cleaning OCR artifacts
+   - TF-IDF analysis for finding distinctive terms
+   - Visualizing term distribution across documents
+
+## What's Next?
+
+In the afternoon session, we'll extend this pipeline to:
+- Download PDFs from PhilPapers
+- Convert PDFs to text
+- Add them to our existing corpus
+- Re-run our analysis without changing our code!
+
+The beauty of building it right from the start is that our code is ready to scale.
+
+## Save Our Work
+```{r}
+# Save our corpus metadata for the afternoon session
+write.csv(corpus_df, "corpus_day4_metadata.csv", row.names = FALSE)
+
+# Save the cleaned corpus object
+saveRDS(corpus_texts, "corpus_day4_texts.rds")
+
+print("Morning session complete! Your corpus is ready for expansion.")
+```

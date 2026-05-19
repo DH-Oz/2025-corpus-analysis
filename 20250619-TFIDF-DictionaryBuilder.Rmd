@@ -1,0 +1,225 @@
+---
+title: "Building a Dictionary"
+author: 
+- "Brian Ballsun-Stanton"
+date: "2025-06-19"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+# AI Use Disclosure:
+
+- [https://claude.ai/share/13e8baa5-4460-44b4-9411-fa3839615280]
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Set working directory
+```{r}
+setwd("~/people/Mark/2025-CorpusLinguistics/")
+```
+
+# Load required packages
+```{r requires, message=FALSE}
+require(pdftools)      # for PDF text extraction
+require(quanteda)      # for corpus analysis
+require(quanteda.corpora)  # for baseline corpora
+require(quanteda.textstats)  # for TF-IDF
+require(hunspell)      # for spell checking (optional)
+```
+
+# Introduction: Functions and If Statements
+
+## What are functions?
+
+Yesterday, we used a loop to automatically create multiple plots. Today, we'll learn about **functions** - reusable chunks of code that:
+- Take inputs (called "arguments" or "parameters")
+- Do something with those inputs
+- Return an output
+
+Think of a function like a recipe:
+- **Ingredients** (inputs): What you put in
+- **Instructions** (the function body): What you do with the ingredients
+- **Final dish** (output): What you get back
+
+## What are if statements?
+
+If statements let your code make decisions. They check if something is true, and then do different things based on the answer. Like:
+- IF it's raining, THEN take an umbrella
+- IF the PDF is empty, THEN stop and warn the user
+
+# Function 1: Converting PDF to a Data Frame
+
+Let's build our first function to extract text from a PDF and put it in a format that quanteda can understand.
+
+```{r pdf_df_function}
+# Function definition starts with the function name and what goes in the parentheses
+pdf_to_dataframe <- function(pdf_file, doc_id = "dissertation") {
+  # pdf_file: the path to your PDF file
+  # doc_id: what we'll call this document (default is "dissertation")
+  
+  # Step 1: Extract text from PDF
+  # pdf_text() returns a vector with one element per page
+  text <- pdf_text(pdf_file)
+  
+  # Step 2: Combine all pages into one long text
+  # collapse = " " means put a space between each page
+  text <- paste(text, collapse = " ")
+  
+  word_count <- length(strsplit(text, "\\s+")[[1]])
+  print(paste("Extracted", word_count, "words from", pdf_file))
+
+  # Second IF statement: Check if we have a reasonable number of words
+  if (word_count < 100) {
+    stop("PDF extraction suspicious - document has less than 100 words!")
+  }
+  
+  
+  # Step 3: Create a data frame that matches quanteda's expected format
+  # quanteda corpora always have at least doc_id and text columns
+  df <- data.frame(
+    doc_id = doc_id,           # document identifier
+    text = text,               # the actual text content
+    stringsAsFactors = FALSE   # keep text as text, not categories
+  )
+  
+  # Step 4: Send the data frame back to whoever called the function
+  return(df)
+}
+
+# Test the function
+
+test <- pdf_to_dataframe("20250603-BBS-JT-TeachingTheUnknown.pdf", doc_id="TeachingUnkown")
+
+```
+
+**Key concepts:**
+- `function()` creates a new function
+- Everything inside `{ }` is what the function does
+- `return()` sends the result back
+- `doc_id = "dissertation"` sets a default value - if you don't specify doc_id, it uses "dissertation"
+
+
+
+# Function 2: Creating a Document-Feature Matrix with Conditional Logic
+
+Now let's create a function that prepares our text for analysis, with an option to remove stopwords or not.
+
+```{r}
+prepare_dfm <- function(df, make_corpus=TRUE, remove_stopwords = TRUE) {
+  # df: a data frame with doc_id and text columns
+  # remove_stopwords: should we remove common words like "the", "and"? (default: yes)
+  
+  # Step 1: Convert data frame to corpus object
+  # text_field tells corpus() which column contains the text
+  if (make_corpus){
+    corp <- corpus(df, text_field = "text")
+  } else {
+    corp <- df
+  }
+  
+  # Step 2: Tokenize (split into words) and remove punctuation
+  # tokens() breaks text into individual words
+  # remove_punct = TRUE strips out . , ! ? etc.
+  toks <- tokens(corp, remove_punct = TRUE)
+  
+  # Step 3: HERE'S OUR IF STATEMENT!
+  # This is where the function makes a decision
+  if (remove_stopwords) {
+    # If remove_stopwords is TRUE, remove common English words
+    # This helps focus on meaningful content words
+    toks <- tokens_remove(toks, stopwords("en"))
+    
+    # We could add more cleaning here if needed:
+    # toks <- tokens_tolower(toks)  # make everything lowercase
+  }
+  # If remove_stopwords is FALSE, we skip this step entirely
+  
+  # Step 4: Convert tokens to document-feature matrix
+  # This creates a table: rows = documents, columns = words, cells = counts
+  dfm_result <- dfm(toks)
+  
+  # Step 5: Return the DFM
+  return(dfm_result)
+}
+
+test_dfm <- prepare_dfm(test)
+```
+
+**The IF statement explained:**
+- `if (condition) { do something }` 
+- If the condition is TRUE, run the code inside `{ }`
+- If the condition is FALSE, skip that code
+- This lets us toggle stopword removal on/off by changing one parameter
+
+# Function 3: TF-IDF Analysis and Saving Results
+
+TF-IDF helps us find words that are distinctive to our document compared to a baseline corpus.
+
+```{r}
+save_tfidf_terms <- function(target_dfm, baseline_dfm, output_file = "distinctive_terms.txt") {
+  # target_dfm: the DFM of our document (e.g., dissertation)
+  # baseline_dfm: the DFM of comparison documents (e.g., Guardian articles)
+  # output_file: where to save the results
+  
+  # Step 1: Combine our document with the baseline corpus
+  # rbind() stacks DFMs vertically (row bind)
+  # Now row 1 = our document, rows 2+ = baseline documents
+  combined_dfm <- rbind(target_dfm, baseline_dfm)
+  
+  # Step 2: Calculate TF-IDF scores
+  # TF-IDF = Term Frequency × Inverse Document Frequency
+  # High score = word is frequent in our doc but rare in others
+  tfidf_result <- dfm_tfidf(combined_dfm)
+  
+  # Step 3: Extract top 50 terms from OUR document (row 1)
+  # [1,] means "first row, all columns"
+  # topfeatures() returns words sorted by their TF-IDF scores
+  top_terms <- topfeatures(tfidf_result[1,], 50)
+  
+  # Step 4: Save just the word list to a text file
+  # names(top_terms) gets the words (not the scores)
+  # One word per line makes it easy to edit
+  writeLines(names(top_terms), output_file)
+  
+  # Step 5: Also return the terms so we can see them
+  return(top_terms)
+}
+
+dfm_sotu <- prepare_dfm(data_corpus_sotu, make_corpus = FALSE)
+test_terms <- save_tfidf_terms(test_dfm, dfm_sotu)
+```
+
+# Key Takeaways
+
+1. **Functions** let us package code for reuse:
+   - Define once, use many times
+   - Make complex tasks simple
+   - Share code with others
+
+2. **If statements** let code make decisions:
+   - Check conditions
+   - Do different things based on the result
+   - Make functions flexible
+
+3. **TF-IDF** helps find distinctive vocabulary:
+   - Compares your document to a baseline
+   - High scores = distinctive to your document
+   - Still requires human judgment to select meaningful terms
+
+4. **Dictionary building** combines computation and expertise:
+   - Start with data-driven suggestions (TF-IDF)
+   - Apply domain knowledge to select terms
+   - Create reusable resources for analysis
+
+# Next Steps
+
+Tomorrow we'll expand on this foundation:
+- Download multiple documents in a loop
+- Process mixed file types (PDF and TXT)
+- Build larger corpora from online sources
+- Create more sophisticated visualizations
+
+Remember: Functions and if statements are the building blocks that let us scale from analyzing one document to analyzing hundreds!

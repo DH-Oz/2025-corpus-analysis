@@ -1,0 +1,200 @@
+---
+title: "PDF to TF-IDF"
+author: "Brian Ballsun-Stanton"
+date: "2025-06-19"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_packages, message=FALSE}
+require(pdftools)
+require(quanteda)
+require(quanteda.textstats)
+```
+
+# Reuse Our Functions from Yesterday
+
+```{r existing_functions}
+# Same function from yesterday - no changes!
+pdf_to_dataframe <- function(pdf_file, doc_id="dissertation") {
+  pdf_text <- pdf_text(pdf_file) %>%
+    paste(collapse = " ")
+  
+  word_count <- length(strsplit(pdf_text, "\\s+")[[1]])
+  print(paste("Extracted", word_count, "words from", pdf_file))
+  
+  if (word_count < 100) {
+    stop("Document has less than 100 words.")
+  }
+  
+  df <- data.frame(
+    doc_id = doc_id,
+    text = pdf_text,
+    stringsAsFactors = FALSE
+  )
+  
+  return(df)
+}
+
+# Also from yesterday
+prepare_df <- function(df, make_corpus=TRUE, remove_stopwords=TRUE) {
+  if (make_corpus) {
+    corp <- corpus(df, text_field = "text")
+  } else {
+    corp <- df 
+  }
+  
+  toks <- tokens(corp, remove_punct = TRUE)
+  
+  if (remove_stopwords) {
+    toks <- tokens_remove(toks, stopwords('en')) %>%
+      tokens_tolower()
+  }
+  
+  dfm_result <- dfm(toks)
+  return(dfm_result)
+}
+```
+
+# Build Corpus from Directory - Our First Loop!
+
+```{r build_corpus_loop}
+# Get list of PDF files
+pdf_files <- list.files("pdfs/", pattern = "*.pdf", full.names = TRUE)
+
+# Initialize empty list to store dataframes
+all_dfs <- list()
+
+# Loop through each PDF file
+for (i in 1:length(pdf_files)) {
+  pdf_file <- pdf_files[i]
+  
+  # Extract just the filename for doc_id
+  doc_name <- tools::file_path_sans_ext(basename(pdf_file))
+  
+  # Try to process this PDF
+  tryCatch({
+    df <- pdf_to_dataframe(pdf_file, doc_id = doc_name)
+    all_dfs[[i]] <- df
+    print(paste("Success:", doc_name))
+  }, error = function(e) {
+    print(paste("Failed:", doc_name, "-", e$message))
+  })
+}
+
+# Combine all successful PDFs into one dataframe
+baseline_corpus_df <- do.call(rbind, all_dfs[!sapply(all_dfs, is.null)])
+print(paste("Built corpus with", nrow(baseline_corpus_df), "documents"))
+```
+
+# Run TF-IDF with Our New Corpus
+
+```{r tfidf_analysis}
+# Load dissertation
+diss_df <- pdf_to_dataframe("Tarnowski_phdthesis.pdf", doc_id = "dissertation")
+
+# Create DFMs
+diss_dfm <- prepare_df(diss_df)
+baseline_dfm <- prepare_df(baseline_corpus_df)
+
+# Same TF-IDF function from yesterday
+save_tfidf_terms <- function(target_dfm, baseline_dfm, output_file = "terms.txt") {
+  combined_dfm <- rbind(target_dfm, baseline_dfm)
+  tfidf_result <- dfm_tfidf(combined_dfm)
+  top_terms <- topfeatures(tfidf_result[1,], 50)
+  writeLines(names(top_terms), output_file)
+  return(top_terms)
+}
+
+# Get distinctive terms
+tfidf_terms <- save_tfidf_terms(diss_dfm, baseline_dfm)
+```
+
+# Apply Custom Dictionary with KWIC - Our Second Loop!
+
+```{r dictionary_kwic_loop}
+# Read our curated dictionary from file
+# We edited terms.txt down to just the terms we want
+curated_dictionary <- readLines("curated_terms.dic")
+print(paste("Dictionary contains", length(curated_dictionary), "terms"))
+
+# Create tokens for KWIC
+all_text <- c(diss_df$text, baseline_corpus_df$text)
+all_ids <- c(diss_df$doc_id, baseline_corpus_df$doc_id)
+corp <- corpus(all_text, docnames = all_ids)
+toks <- tokens(corp)
+
+# Create output directory
+if (!dir.exists("kwic_output")) {
+  dir.create("kwic_output")
+}
+
+# Loop through dictionary terms
+for (term in curated_dictionary) {
+  print(paste("Generating KWIC for:", term))
+  
+  # Create KWIC
+  kwic_result <- kwic(toks, pattern = term, window = 10)
+  
+  # Save as simple CSV
+  if (nrow(kwic_result) > 0) {
+    output_file <- paste0("kwic_output/kwic_", term, ".csv")
+    write.csv(as.data.frame(kwic_result), output_file, row.names = FALSE)
+    print(paste("  Found", nrow(kwic_result), "instances"))
+  } else {
+    print(paste("  No instances found"))
+  }
+}
+```
+
+# Making a nested loop to look at co-occurance of dictionary terms within our corpus
+
+Our plan is to iterate on our dictionary and then, within that, iterate on our dictionary, such that we can see how each term speaks when in relation to each other term.
+
+```{r nested_loop}
+
+window_size = 10
+
+cooc_df <- data.frame(
+  term1 = character(),
+  term2 = character(),
+  count = integer(),
+  example = character(),
+  stringsAsFactors = FALSE
+)
+
+for (term1 in curated_dictionary){
+  kwic1 <- kwic(toks, pattern = term1, window = window_size)
+  
+  if (nrow(kwic1) > 0){
+    for (term2 in curated_dictionary){
+      if (term1 != term2){
+        contexts <- paste(kwic1$pre, kwic1$keyword, kwic1$post)
+        matches <- grepl(pattern=term2, x=contexts, ignore.case = TRUE)
+        count <- sum(matches)
+        
+        if (count > 0){
+          first_example <- contexts[which(matches)[1]]
+          
+          cooc_df <- rbind(cooc_df,
+                           data.frame(
+                             term1 = term1,
+                             term2 = term2,
+                             count = count,
+                             example = first_example, #substr(first_example,1,100),
+                             stringsAsFactors = FALSE
+                             
+                           ))
+        }
+      }
+    }
+  }
+}
+
+write.csv(cooc_df, "kwic_output/cooccurances.csv", row.names=FALSE)
+
+```

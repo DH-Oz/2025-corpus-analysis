@@ -1,0 +1,124 @@
+---
+title: "SOTU Wordclouds"
+author: "Brian Ballsun-Stanton"
+date: "2025-06-17"
+output:
+  pdf_document: default
+  html_document: default
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 20250617 1501
+
+* Started adding requirements.
+
+```{r requirements, include=FALSE}
+require(quanteda)
+require(quanteda.corpora)
+require(quanteda.textplots)
+require(ggplot2)
+require(stopwords)
+```
+
+## 20250617 1514
+
+* Teaching pipes
+* Making a DFM out of the SOTU (in variable `dfmat_sotu`)
+
+```{r dfm_sotu, message=FALSE, echo=FALSE}
+# Document feature matrix of quanteda corpus, State of the union
+
+dfmat_sotu <- tokens(data_corpus_sotu,
+                    remove_punct = TRUE) %>%
+              dfm() %>%
+              dfm_remove(pattern = stopwords("en")) %>%
+              dfm_trim(min_docfreq = 3,
+                       min_termfreq = 5)
+  
+
+```
+
+## Make. Wordcloud?
+
+* Let's make the wordcloud now, because we're presenting to a manager.
+
+```{r wordcloud, echo=FALSE}
+set.seed(1)
+
+textplot_wordcloud(dfmat_sotu,
+                   min_count = 600,
+                   random_order = FALSE,
+                   rotation = .25,
+                   color = RColorBrewer::brewer.pal(8, "Dark2")
+                   ) # 8 is n, the set of different colours.
+```
+
+
+## Custom colours in wordcloud
+
+* having searched, I found the 12 bit palette https://iamkate.com/data/12-bit-rainbow/ and 
+* https://r-graph-gallery.com/ggplot2-color.html
+
+ggplot2 natively supports several methods to customize the color palette:
+
+p <- ggplot(iris,
+  aes(x=Sepal.Length, y=Sepal.Width, color=Species)) +
+  geom_point(size=6)
+        
+p + scale_color_manual(values=c("#69b3a2", "purple", "black"))
+
+
+Hypothesis: I can set color = scale_color_manual(values blah for the wordcloud)
+
+```{r wordcloud_ex1, echo=FALSE}
+# set.seed(1)
+# 
+# textplot_wordcloud(dfmat_sotu,
+#                    min_count = 600,
+#                    random_order = FALSE,
+#                    rotation = .25,
+#                    color = scale_color_manual(values=c("#69b3a2", "purple", "black")) #RColorBrewer::brewer.pal(8, "Dark2")
+# Error in color[cc] : object of type 'environment' is not subsettable
+                   # ) # 8 is n, the set of different colours.
+```
+
+Experiment didn't work.
+
+## 20250618 0944
+
+Experiment 2, try a standard vector.
+
+```{r wordcloud_ex2, echo=FALSE}
+set.seed(1)
+
+textplot_wordcloud(dfmat_sotu,
+                   min_count = 600,
+                   random_order = FALSE,
+                   rotation = .25,
+                   color = c("#69b3a2", "purple", "black")
+)
+```
+
+Experiment worked! Now to get the 12-bit colours!
+
+
+```{r wordcloud_rainbow, echo=FALSE}
+#| fig-cap: "A good rainbow SOTU render"
+#| fig-alt: "High frequency words from the SOTU"
+
+textplot_wordcloud(dfmat_sotu,
+                   min_count = 600,
+                   random_order = FALSE,
+                   rotation = .25,
+                   color = c("#817", "#a35", "#c66", "#e94", "#ed0", "#9d5", "#4d8", "#2cb", "#0bc", "#09c", "#36b", "#639")
+)
+```
+
+Bug: "Duplicate label wordcloud" -- when making chunks, make sure to change the labels
+
+According to [@smithEducatingRiskHow2020] rainbows are neat...
