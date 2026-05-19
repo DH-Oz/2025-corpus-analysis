@@ -27,7 +27,7 @@ Lessons taught after the original class wrap-up and folded into the archive in 2
 - `FirstWordcloud.Rmd`, `.html`, `.pdf` — Brian's iterative wordcloud-colouring notebook on the SOTU corpus.
 - `curated_terms.dic`, `distinctive_terms.txt`, `terms.txt` — dictionary and TF-IDF term lists produced by the post-class lessons.
 - `20250603-BBS-JT-TeachingTheUnknown.pdf` — the conference paper (Ballsun-Stanton & Topping, 2025) that motivated the post-class TF-IDF/KWIC lessons. **CC BY 4.0**, reproduced with author permission.
-- `2025-MQ-Teaching-the-Unknown.bib`, `references.bib` — bibliographies cited from the post-class lessons and paper.
+- `references.bib` — bibliography cited from the post-class lessons and paper.
 
 ## Bundled download
 
