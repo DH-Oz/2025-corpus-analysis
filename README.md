@@ -31,7 +31,7 @@ Lessons taught after the original class wrap-up and folded into the archive in 2
 
 ## Bundled download
 
-A single-zip download of the course materials is available on the [Releases page](https://github.com/DH-Oz/2025-corpus-analysis/releases) — convenient for students who want to grab everything without browsing the repo.
+Grab the whole archive as a zip from the [`v2025` release page](https://github.com/DH-Oz/2025-corpus-analysis/releases/tag/v2025) — use the `Source code (zip)` link. LIWC and the third-party PDF corpus are excluded from the repository (and therefore from the auto-generated zip) by `.gitignore`; see "What is NOT included" below.
 
 ## What is NOT included
 

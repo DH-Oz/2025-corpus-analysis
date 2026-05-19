@@ -25,4 +25,4 @@ Current course development happens in `DH-Oz/CorpusAnalysis` (Python/Jupyter piv
 ## Distribution
 
 - Repo is public on GitHub.
-- Bundled zips of the course materials live on the GitHub Releases page (`v2025` for the initial archive; `v2025.1` for the post-class additions), with LIWC and the third-party PDF corpus stripped.
+- The course materials are distributed via GitHub's auto-generated `Source code (zip)` on the `v2025` release. LIWC and the third-party PDF corpus are excluded by `.gitignore`, so they're absent from the auto-archive automatically — no custom asset upload is needed. When amending the archive (e.g. folding in post-class content), force-move the `v2025` tag rather than cutting a new tag.
