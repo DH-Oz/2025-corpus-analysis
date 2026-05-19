@@ -5,6 +5,16 @@ LIWC*.dict
 liwc*.dic
 liwc*.dict
 
+# Third-party PDF corpus from the "Teaching the Unknown" post-class lessons —
+# referenced by 20250619-Corpus-TFIDF.Rmd and 20250619-TFIDF-DictionaryBuilder.Rmd.
+# Not redistributed (other authors' work). See README "What is NOT included".
+pdfs/
+Tarnowski_phdthesis.pdf
+
+# KWIC outputs contain text excerpts from the third-party PDF corpus above.
+kwic_output/
+kwic.zip
+
 # R / RStudio
 .Rproj.user/
 .Rhistory
